@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet } from 'lucide-react';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut } from 'lucide-react';
 import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
@@ -7,6 +7,7 @@ import CalendarView from './components/Calendar';
 import CreditCardList from './components/CreditCardList';
 import FixedExpenseList from './components/FixedExpenseList';
 import IncomeList from './components/IncomeList';
+import Login from './components/Login';
 import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
 
@@ -19,6 +20,11 @@ export const formatCurrency = (amount: number) => {
 type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    // Check if user is already logged in
+    const auth = localStorage.getItem('debt_app_auth');
+    return auth === 'true';
+  });
   const [activeTab, setActiveTab] = useState<Tab>('DASHBOARD');
   const [loans, setLoans] = useState<Loan[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCardType[]>([]);
@@ -31,6 +37,18 @@ function App() {
   const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    if (window.confirm('Bạn có chắc chắn muốn đăng xuất?')) {
+      localStorage.removeItem('debt_app_auth');
+      localStorage.removeItem('debt_app_auth_time');
+      setIsAuthenticated(false);
+    }
+  };
 
   // Load data from server on mount
   useEffect(() => {
@@ -549,6 +567,11 @@ function App() {
   // Calculate total for preview (Bank only)
   const previewBankTotal = (parseFloat(newMonthlyPayment) || 0) * (parseInt(newTerm) || 0);
 
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -574,6 +597,13 @@ function App() {
           </div>
           
           <div className="flex items-center gap-2">
+            <button 
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 text-slate-700 hover:text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors border border-slate-200"
+              title="Đăng xuất"
+            >
+              <LogOut size={16} /> <span className="hidden sm:inline">Đăng xuất</span>
+            </button>
             <button 
               onClick={handleExportData}
               className="hidden sm:flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors border border-slate-200"

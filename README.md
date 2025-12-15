@@ -1,6 +1,6 @@
 # Debt Management App
 
-Ứng dụng quản lý nợ thông minh - Quản lý các khoản vay ngân hàng, thẻ tín dụng và chi tiêu cố định.
+Ứng dụng quản lý thông minh - Quản lý các khoản vay ngân hàng, thẻ tín dụng và chi tiêu cố định.
 
 ## Tính năng
 
