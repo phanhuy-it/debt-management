@@ -75,13 +75,25 @@ CREATE TRIGGER update_credit_cards_updated_at BEFORE UPDATE ON credit_cards
 CREATE TRIGGER update_fixed_expenses_updated_at BEFORE UPDATE ON fixed_expenses
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Enable Row Level Security (RLS) - có thể tắt nếu muốn public access
+-- Disable Row Level Security (RLS) for public access
+-- Nếu muốn bật RLS, comment các dòng ALTER TABLE ... DISABLE ROW LEVEL SECURITY;
+-- và uncomment các CREATE POLICY ở dưới
+
+ALTER TABLE loans DISABLE ROW LEVEL SECURITY;
+ALTER TABLE credit_cards DISABLE ROW LEVEL SECURITY;
+ALTER TABLE fixed_expenses DISABLE ROW LEVEL SECURITY;
+
+-- Alternative: Nếu muốn bật RLS, uncomment các policy sau:
 -- ALTER TABLE loans ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE credit_cards ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE fixed_expenses ENABLE ROW LEVEL SECURITY;
-
--- Policy để cho phép tất cả operations (tạm thời, có thể tùy chỉnh sau)
--- CREATE POLICY "Allow all operations" ON loans FOR ALL USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all operations" ON credit_cards FOR ALL USING (true) WITH CHECK (true);
--- CREATE POLICY "Allow all operations" ON fixed_expenses FOR ALL USING (true) WITH CHECK (true);
+-- 
+-- CREATE POLICY "Allow all operations on loans" ON loans 
+--   FOR ALL USING (true) WITH CHECK (true);
+-- 
+-- CREATE POLICY "Allow all operations on credit_cards" ON credit_cards 
+--   FOR ALL USING (true) WITH CHECK (true);
+-- 
+-- CREATE POLICY "Allow all operations on fixed_expenses" ON fixed_expenses 
+--   FOR ALL USING (true) WITH CHECK (true);
 

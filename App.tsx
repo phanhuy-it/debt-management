@@ -417,27 +417,50 @@ function App() {
     }
 
     try {
-      const importedLoans = await importDataFromFile(file);
+      const importedData = await importDataFromFile(file);
       
-      if (importedLoans.length === 0) {
+      const totalItems = importedData.loans.length + importedData.creditCards.length + importedData.fixedExpenses.length;
+      
+      if (totalItems === 0) {
         alert('File không chứa dữ liệu nào');
         return;
       }
 
-      // Ask user for confirmation
-      const confirmMessage = loans.length > 0 
-        ? `Bạn đang có ${loans.length} khoản vay. Import sẽ thay thế toàn bộ dữ liệu hiện tại bằng ${importedLoans.length} khoản vay từ file. Bạn có chắc chắn?`
-        : `Import ${importedLoans.length} khoản vay từ file?`;
+      // Build confirmation message
+      const parts = [];
+      if (importedData.loans.length > 0) parts.push(`${importedData.loans.length} khoản vay`);
+      if (importedData.creditCards.length > 0) parts.push(`${importedData.creditCards.length} thẻ tín dụng`);
+      if (importedData.fixedExpenses.length > 0) parts.push(`${importedData.fixedExpenses.length} chi tiêu cố định`);
+      
+      const currentTotal = loans.length + creditCards.length + fixedExpenses.length;
+      const confirmMessage = currentTotal > 0
+        ? `Bạn đang có ${currentTotal} mục dữ liệu. Import sẽ thay thế toàn bộ dữ liệu hiện tại bằng:\n${parts.join(', ')}\n\nBạn có chắc chắn?`
+        : `Import ${parts.join(', ')} từ file?\n\nLưu ý: ID sẽ được tự động chuyển đổi sang UUID format.`;
 
       if (window.confirm(confirmMessage)) {
-        setLoans(importedLoans);
-        // Save imported data to server
-        await saveLoansToServer(importedLoans);
+        // Update all data
+        if (importedData.loans.length > 0) {
+          setLoans(importedData.loans);
+          await saveLoansToServer(importedData.loans);
+        }
+        
+        if (importedData.creditCards.length > 0) {
+          setCreditCards(importedData.creditCards);
+          await saveCreditCardsToServer(importedData.creditCards);
+        }
+        
+        if (importedData.fixedExpenses.length > 0) {
+          setFixedExpenses(importedData.fixedExpenses);
+          await saveFixedExpensesToServer(importedData.fixedExpenses);
+        }
+        
         setShowImportModal(false);
-        alert(`Đã import thành công ${importedLoans.length} khoản vay!`);
+        alert(`✅ Đã import thành công:\n${parts.join('\n')}\n\nID đã được tự động chuyển đổi sang UUID format.`);
       }
     } catch (error) {
-      alert('Lỗi khi import dữ liệu: ' + (error instanceof Error ? error.message : 'Lỗi không xác định'));
+      console.error('Error in handleFileSelect:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Lỗi không xác định';
+      alert('❌ Lỗi khi import dữ liệu:\n\n' + errorMessage + '\n\nVui lòng kiểm tra console để xem chi tiết lỗi.');
     }
   };
 

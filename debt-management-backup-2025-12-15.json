@@ -1,0 +1,362 @@
+{
+  "version": "1.0",
+  "exportDate": "2025-12-15T07:18:45.308Z",
+  "loans": [
+    {
+      "id": "1765764278815",
+      "name": "Vay tiền mặt",
+      "provider": "Mẹ",
+      "type": "PERSONAL",
+      "originalAmount": 1170000000,
+      "monthlyDueDate": 0,
+      "monthlyPayment": 0,
+      "startDate": "2025-12-15",
+      "termMonths": 0,
+      "payments": [
+        {
+          "id": "1765764285258",
+          "date": "2025-12-15T02:04:45.258Z",
+          "amount": 65000000,
+          "note": "Thanh toán"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765764381497",
+      "name": "Vay tiền mặt",
+      "provider": "Chị 3",
+      "type": "PERSONAL",
+      "originalAmount": 83000000,
+      "monthlyDueDate": 0,
+      "monthlyPayment": 0,
+      "startDate": "2025-12-15",
+      "termMonths": 0,
+      "payments": [
+        {
+          "id": "borrow-1765764702959",
+          "date": "2025-12-15T02:11:42.959Z",
+          "amount": 5000000,
+          "note": "Vay thêm 5.000.000 ₫"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765764409622",
+      "name": "Vay tiền mặt",
+      "provider": "Chị 2",
+      "type": "PERSONAL",
+      "originalAmount": 60000000,
+      "monthlyDueDate": 0,
+      "monthlyPayment": 0,
+      "startDate": "2025-12-15",
+      "termMonths": 0,
+      "payments": [],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765764416714",
+      "name": "Vay tiền mặt",
+      "provider": "Ba",
+      "type": "PERSONAL",
+      "originalAmount": 10000000,
+      "monthlyDueDate": 0,
+      "monthlyPayment": 0,
+      "startDate": "2025-12-15",
+      "termMonths": 0,
+      "payments": [],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765764426816",
+      "name": "Vay tiền mặt",
+      "provider": "Chú Út",
+      "type": "PERSONAL",
+      "originalAmount": 20000000,
+      "monthlyDueDate": 0,
+      "monthlyPayment": 0,
+      "startDate": "2025-12-15",
+      "termMonths": 0,
+      "payments": [],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765764440741",
+      "name": "Vay tiền mặt",
+      "provider": "Vợ",
+      "type": "PERSONAL",
+      "originalAmount": 70000000,
+      "monthlyDueDate": 0,
+      "monthlyPayment": 0,
+      "startDate": "2025-12-15",
+      "termMonths": 0,
+      "payments": [
+        {
+          "id": "borrow-1765779933489",
+          "date": "2025-12-15T06:25:33.489Z",
+          "amount": 10000000,
+          "note": "Vay thêm 10.000.000 ₫"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765764740459",
+      "name": "vay - HSBC (2022)",
+      "provider": "HSBC",
+      "type": "BANK",
+      "originalAmount": 109200000,
+      "monthlyDueDate": 5,
+      "monthlyPayment": 1820000,
+      "startDate": "2025-12-15T02:12:20.459Z",
+      "termMonths": 60,
+      "payments": [
+        {
+          "id": "init-1765764740459",
+          "date": "2025-12-15T02:12:20.459Z",
+          "amount": 87360000,
+          "note": "Đã thanh toán 48 kỳ trước"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765767674904",
+      "name": "vay - FE Credit - 30tr",
+      "provider": "FE Credit",
+      "type": "BANK",
+      "originalAmount": 55080000,
+      "monthlyDueDate": 8,
+      "monthlyPayment": 1530000,
+      "startDate": "2025-12-15T03:01:14.904Z",
+      "termMonths": 36,
+      "payments": [
+        {
+          "id": "init-1765767674904",
+          "date": "2025-12-15T03:01:14.904Z",
+          "amount": 6120000,
+          "note": "Đã thanh toán 4 kỳ trước"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765767697361",
+      "name": "vay - HSBC (2023)",
+      "provider": "HSBC",
+      "type": "BANK",
+      "originalAmount": 258600000,
+      "monthlyDueDate": 9,
+      "monthlyPayment": 4310000,
+      "startDate": "2025-12-15T03:01:37.361Z",
+      "termMonths": 60,
+      "payments": [
+        {
+          "id": "init-1765767697361",
+          "date": "2025-12-15T03:01:37.361Z",
+          "amount": 155160000,
+          "note": "Đã thanh toán 36 kỳ trước"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765767731888",
+      "name": "vay - Home Credit - 50",
+      "provider": "Home Credit",
+      "type": "BANK",
+      "originalAmount": 63936000,
+      "monthlyDueDate": 11,
+      "monthlyPayment": 2664000,
+      "startDate": "2025-12-15T03:02:11.888Z",
+      "termMonths": 24,
+      "payments": [
+        {
+          "id": "init-1765767731888",
+          "date": "2025-12-15T03:02:11.888Z",
+          "amount": 23976000,
+          "note": "Đã thanh toán 9 kỳ trước"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765767751531",
+      "name": "vay - SHINHAN (2023)",
+      "provider": "SHINHAN",
+      "type": "BANK",
+      "originalAmount": 588000000,
+      "monthlyDueDate": 12,
+      "monthlyPayment": 9800000,
+      "startDate": "2025-12-15T03:02:31.531Z",
+      "termMonths": 60,
+      "payments": [
+        {
+          "id": "init-1765767751531",
+          "date": "2025-12-15T03:02:31.531Z",
+          "amount": 274400000,
+          "note": "Đã thanh toán 28 kỳ trước"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765767810430",
+      "name": "vay - Zalo Pay - 30",
+      "provider": "Zalo Pay",
+      "type": "BANK",
+      "originalAmount": 85920000,
+      "monthlyDueDate": 13,
+      "monthlyPayment": 3580000,
+      "startDate": "2025-12-15T03:03:30.430Z",
+      "termMonths": 24,
+      "payments": [],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765768188219",
+      "name": "vay - Shopee - 10",
+      "provider": "Shopee",
+      "type": "BANK",
+      "originalAmount": 12000000,
+      "monthlyDueDate": 12,
+      "monthlyPayment": 2000000,
+      "startDate": "2025-12-15T03:09:48.219Z",
+      "termMonths": 6,
+      "payments": [],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765781423551",
+      "name": "vay - Momo - 100",
+      "provider": "Momo",
+      "type": "BANK",
+      "originalAmount": 173880000,
+      "monthlyDueDate": 24,
+      "monthlyPayment": 4830000,
+      "startDate": "2025-12-15T06:50:23.551Z",
+      "termMonths": 36,
+      "payments": [
+        {
+          "id": "init-1765781423551",
+          "date": "2025-10-31T17:00:00.000Z",
+          "amount": 9660000,
+          "note": "Đã thanh toán 2 kỳ trước"
+        }
+      ],
+      "status": "ACTIVE"
+    }
+  ],
+  "creditCards": [
+    {
+      "id": "1765771608805",
+      "name": "thẻ HSBC",
+      "provider": "HSBC",
+      "creditLimit": 16100000,
+      "totalDebt": 14166322,
+      "paymentAmount": 745596,
+      "dueDate": 8,
+      "payments": [
+        {
+          "id": "1765773806261",
+          "date": "2025-12-15T04:43:26.261Z",
+          "amount": 745596,
+          "note": "Thanh toán tối thiểu - tháng 12 năm 2025"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765771798458",
+      "name": "Thẻ SC",
+      "provider": "Standard Chartered",
+      "creditLimit": 26000000,
+      "totalDebt": 9303066,
+      "paymentAmount": 1303066,
+      "dueDate": 19,
+      "payments": [],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765771874539",
+      "name": "Thẻ Shinhan",
+      "provider": "Shinhanbank",
+      "creditLimit": 19500000,
+      "totalDebt": 17000000,
+      "paymentAmount": 2255242,
+      "dueDate": 15,
+      "payments": [
+        {
+          "id": "1765773323698",
+          "date": "2025-12-15T04:35:23.698Z",
+          "amount": 2255242,
+          "note": "Thanh toán thẻ tín dụng"
+        }
+      ],
+      "status": "ACTIVE"
+    }
+  ],
+  "fixedExpenses": [
+    {
+      "id": "1765774566551",
+      "name": "Thuê nhà",
+      "amount": 3155000,
+      "dueDate": 10,
+      "payments": [
+        {
+          "id": "1765774569960",
+          "date": "2025-12-15T04:56:09.960Z",
+          "amount": 3155000,
+          "note": "Thanh toán tháng tháng 12 năm 2025"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765774585224",
+      "name": "Điện",
+      "amount": 159000,
+      "dueDate": 10,
+      "payments": [
+        {
+          "id": "1765774601228",
+          "date": "2025-12-15T04:56:41.228Z",
+          "amount": 159000,
+          "note": "Thanh toán tháng tháng 12 năm 2025"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765774598065",
+      "name": "Ví momo",
+      "amount": 0,
+      "dueDate": 10,
+      "payments": [
+        {
+          "id": "1765774602571",
+          "date": "2025-12-15T04:56:42.571Z",
+          "amount": 0,
+          "note": "Thanh toán tháng tháng 12 năm 2025"
+        }
+      ],
+      "status": "ACTIVE"
+    },
+    {
+      "id": "1765774635446",
+      "name": "Ví Shopee Pay",
+      "amount": 0,
+      "dueDate": 10,
+      "payments": [
+        {
+          "id": "1765774638199",
+          "date": "2025-12-15T04:57:18.199Z",
+          "amount": 0,
+          "note": "Thanh toán tháng tháng 12 năm 2025"
+        }
+      ],
+      "status": "ACTIVE"
+    }
+  ]
+}

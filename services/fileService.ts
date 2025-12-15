@@ -1,5 +1,6 @@
-import { Loan, CreditCard, FixedExpense } from '../types';
+import { Loan, CreditCard, FixedExpense, Payment } from '../types';
 import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow } from './supabase';
+import { generateUUID, isValidUUID } from '../utils/uuid';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const USE_SUPABASE = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
@@ -464,68 +465,221 @@ export const exportDataToFile = async (): Promise<void> => {
 };
 
 /**
- * Import data from a JSON file (supports both old format - loans only, and new format - all data)
+ * Helper function to migrate ID from timestamp to UUID format
  */
-export const importDataFromFile = (file: File): Promise<Loan[]> => {
+function migratePaymentIds(payments: Payment[]): Payment[] {
+  return payments.map(payment => ({
+    ...payment,
+    id: isValidUUID(payment.id) ? payment.id : generateUUID()
+  }));
+}
+
+/**
+ * Helper function to migrate Loan IDs from timestamp to UUID
+ */
+function migrateLoanIds(loans: Loan[]): Loan[] {
+  return loans.map(loan => ({
+    ...loan,
+    id: isValidUUID(loan.id) ? loan.id : generateUUID(),
+    payments: migratePaymentIds(loan.payments || [])
+  }));
+}
+
+/**
+ * Helper function to migrate CreditCard IDs from timestamp to UUID
+ */
+function migrateCreditCardIds(cards: CreditCard[]): CreditCard[] {
+  return cards.map(card => ({
+    ...card,
+    id: isValidUUID(card.id) ? card.id : generateUUID(),
+    payments: migratePaymentIds(card.payments || [])
+  }));
+}
+
+/**
+ * Helper function to migrate FixedExpense IDs from timestamp to UUID
+ */
+function migrateFixedExpenseIds(expenses: FixedExpense[]): FixedExpense[] {
+  return expenses.map(expense => ({
+    ...expense,
+    id: isValidUUID(expense.id) ? expense.id : generateUUID(),
+    payments: migratePaymentIds(expense.payments || [])
+  }));
+}
+
+/**
+ * Import data from a JSON file (supports both old format - loans only, and new format - all data)
+ * Returns all imported data with migrated UUIDs
+ */
+export interface ImportedData {
+  loans: Loan[];
+  creditCards: CreditCard[];
+  fixedExpenses: FixedExpense[];
+}
+
+export const importDataFromFile = (file: File): Promise<ImportedData> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     
     reader.onload = async (e) => {
       try {
-        const content = e.target?.result as string;
-        const data = JSON.parse(content);
+        if (!e.target?.result) {
+          throw new Error('Không thể đọc nội dung file');
+        }
+        
+        const content = e.target.result as string;
+        
+        if (!content || content.trim().length === 0) {
+          throw new Error('File rỗng hoặc không có nội dung');
+        }
+        
+        let data: any;
+        try {
+          data = JSON.parse(content);
+        } catch (parseError) {
+          console.error('Lỗi parse JSON:', parseError);
+          throw new Error('File không phải định dạng JSON hợp lệ: ' + (parseError instanceof Error ? parseError.message : 'Lỗi không xác định'));
+        }
+        
+        if (!data || typeof data !== 'object') {
+          throw new Error('Dữ liệu trong file không hợp lệ');
+        }
         
         let loans: Loan[] = [];
+        let creditCards: CreditCard[] = [];
+        let fixedExpenses: FixedExpense[] = [];
         
-        // Check for new format with all data types
-        if (data.loans && Array.isArray(data.loans)) {
-          loans = data.loans as Loan[];
+        try {
+          // Check for new format with all data types
+          if (data.loans && Array.isArray(data.loans)) {
+            loans = data.loans as Loan[];
+            console.log(`Tìm thấy ${loans.length} khoản vay`);
+            // Migrate IDs from timestamp to UUID
+            loans = migrateLoanIds(loans);
+          }
           
-          // Also import credit cards and fixed expenses if present
           if (data.creditCards && Array.isArray(data.creditCards)) {
-            try {
-              await saveCreditCardsToServer(data.creditCards);
-            } catch (error) {
-              console.error('Lỗi khi import credit cards:', error);
-            }
+            creditCards = data.creditCards as CreditCard[];
+            console.log(`Tìm thấy ${creditCards.length} thẻ tín dụng`);
+            // Migrate IDs from timestamp to UUID
+            creditCards = migrateCreditCardIds(creditCards);
           }
           
           if (data.fixedExpenses && Array.isArray(data.fixedExpenses)) {
-            try {
-              await saveFixedExpensesToServer(data.fixedExpenses);
-            } catch (error) {
-              console.error('Lỗi khi import fixed expenses:', error);
-            }
+            fixedExpenses = data.fixedExpenses as FixedExpense[];
+            console.log(`Tìm thấy ${fixedExpenses.length} chi tiêu cố định`);
+            // Migrate IDs from timestamp to UUID
+            fixedExpenses = migrateFixedExpenseIds(fixedExpenses);
           }
-        } 
-        // Handle old format (direct array of loans)
-        else if (Array.isArray(data)) {
-          loans = data as Loan[];
-        } 
-        else {
-          throw new Error('Định dạng file không hợp lệ');
+          
+          // Handle old format (direct array of loans)
+          if (Array.isArray(data) && loans.length === 0) {
+            loans = data as Loan[];
+            console.log(`Format cũ: Tìm thấy ${loans.length} khoản vay`);
+            loans = migrateLoanIds(loans);
+          }
+        } catch (migrateError) {
+          console.error('Lỗi khi migrate ID:', migrateError);
+          throw new Error('Lỗi khi chuyển đổi ID: ' + (migrateError instanceof Error ? migrateError.message : 'Lỗi không xác định'));
         }
         
-        // Validate each loan has required fields
-        const requiredFields = ['id', 'name', 'provider', 'type', 'originalAmount', 'payments', 'status'];
+        // Validate data
+        if (loans.length === 0 && creditCards.length === 0 && fixedExpenses.length === 0) {
+          throw new Error('File không chứa dữ liệu hợp lệ. Vui lòng kiểm tra định dạng file.');
+        }
         
-        for (const loan of loans) {
-          for (const field of requiredFields) {
+        // Validate each loan has required fields (optional fields allowed)
+        const loanRequiredFields = ['id', 'name', 'provider', 'type', 'originalAmount', 'payments', 'status'];
+        for (let i = 0; i < loans.length; i++) {
+          const loan = loans[i];
+          for (const field of loanRequiredFields) {
             if (!(field in loan)) {
-              throw new Error(`Dữ liệu không hợp lệ: thiếu trường ${field}`);
+              throw new Error(`Dữ liệu không hợp lệ: Khoản vay thứ ${i + 1} thiếu trường "${field}"`);
             }
+          }
+          // Ensure payments is an array
+          if (!Array.isArray(loan.payments)) {
+            loan.payments = [];
           }
         }
         
-        resolve(loans);
+        // Validate credit cards (make fields optional if missing with defaults)
+        const cardRequiredFields = ['id', 'name', 'provider', 'creditLimit', 'totalDebt', 'dueDate', 'payments', 'status'];
+        for (let i = 0; i < creditCards.length; i++) {
+          const card = creditCards[i] as any;
+          
+          // Check required fields
+          for (const field of cardRequiredFields) {
+            if (!(field in card)) {
+              // Set defaults for missing fields
+              if (field === 'creditLimit') card.creditLimit = 0;
+              else if (field === 'totalDebt') card.totalDebt = 0;
+              else if (field === 'dueDate') card.dueDate = 1;
+              else if (field === 'payments') card.payments = [];
+              else if (field === 'status') card.status = 'ACTIVE';
+              else {
+                throw new Error(`Dữ liệu không hợp lệ: Thẻ tín dụng thứ ${i + 1} thiếu trường "${field}"`);
+              }
+            }
+          }
+          
+          // Ensure optional fields have defaults
+          if (!('paymentAmount' in card)) {
+            card.paymentAmount = 0;
+          }
+          
+          // Ensure payments is an array
+          if (!Array.isArray(card.payments)) {
+            card.payments = [];
+          }
+        }
+        
+        // Validate fixed expenses (make fields optional if missing with defaults)
+        const expenseRequiredFields = ['id', 'name', 'amount', 'dueDate', 'payments', 'status'];
+        for (let i = 0; i < fixedExpenses.length; i++) {
+          const expense = fixedExpenses[i];
+          for (const field of expenseRequiredFields) {
+            if (!(field in expense)) {
+              // Set defaults for missing fields
+              if (field === 'amount') expense.amount = 0;
+              else if (field === 'dueDate') expense.dueDate = 1;
+              else if (field === 'payments') expense.payments = [];
+              else if (field === 'status') expense.status = 'ACTIVE';
+              else {
+                throw new Error(`Dữ liệu không hợp lệ: Chi tiêu cố định thứ ${i + 1} thiếu trường "${field}"`);
+              }
+            }
+          }
+          // Ensure payments is an array
+          if (!Array.isArray(expense.payments)) {
+            expense.payments = [];
+          }
+        }
+        
+        console.log('Import thành công:', {
+          loans: loans.length,
+          creditCards: creditCards.length,
+          fixedExpenses: fixedExpenses.length
+        });
+        
+        resolve({
+          loans,
+          creditCards,
+          fixedExpenses
+        });
       } catch (error) {
-        console.error('Lỗi khi import dữ liệu:', error);
-        reject(error instanceof Error ? error : new Error('Không thể đọc file'));
+        console.error('Lỗi chi tiết khi import:', error);
+        if (error instanceof Error) {
+          reject(error);
+        } else {
+          reject(new Error('Lỗi không xác định khi import dữ liệu: ' + String(error)));
+        }
       }
     };
     
-    reader.onerror = () => {
-      reject(new Error('Không thể đọc file'));
+    reader.onerror = (error) => {
+      console.error('FileReader error:', error);
+      reject(new Error('Không thể đọc file. Vui lòng kiểm tra file có bị hỏng không.'));
     };
     
     reader.readAsText(file);
