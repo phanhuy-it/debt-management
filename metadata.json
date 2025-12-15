@@ -1,0 +1,5 @@
+{
+  "name": "Quản Lý Thông Minh",
+  "description": "Ứng dụng quản lý các khoản vay ngân hàng và cá nhân, theo dõi dư  và tích hợp AI tư vấn tài chính.",
+  "requestFramePermissions": []
+}
