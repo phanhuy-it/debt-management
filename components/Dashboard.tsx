@@ -51,7 +51,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Khoản vay ngân hàng
     loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
-      if (!isCurrentMonthPaid(loan.payments.filter(p => !p.id.startsWith('borrow-')))) {
+      if (!isCurrentMonthPaid(loan.payments.filter(p => {
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        return !isBorrow;
+      }))) {
         result.push({
           id: loan.id,
           name: loan.name,
@@ -153,8 +156,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     loans.forEach(loan => {
       totalOriginal += loan.originalAmount;
       // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
+      // Check cả ID và note để hỗ trợ dữ liệu cũ
       const paidForLoan = loan.payments
-        .filter(p => !p.id.startsWith('borrow-'))
+        .filter(p => {
+          const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+          return !isBorrow;
+        })
         .reduce((acc, p) => acc + p.amount, 0);
       totalPaid += paidForLoan;
       
@@ -199,8 +206,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
   const barData = loans.filter(l => l.type === LoanType.BANK).map(loan => {
     // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
+    // Check cả ID và note để hỗ trợ dữ liệu cũ
     const paid = loan.payments
-      .filter(p => !p.id.startsWith('borrow-'))
+      .filter(p => {
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        return !isBorrow;
+      })
       .reduce((acc, p) => acc + p.amount, 0);
     return {
       name: loan.name,

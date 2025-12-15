@@ -95,8 +95,12 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
   const getProgress = (loan: Loan) => {
     // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
+    // Check cả ID và note để hỗ trợ dữ liệu cũ
     const paid = loan.payments
-      .filter(p => !p.id.startsWith('borrow-'))
+      .filter(p => {
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        return !isBorrow;
+      })
       .reduce((sum, p) => sum + p.amount, 0);
     const total = loan.originalAmount > 0 ? loan.originalAmount : 1;
     const percent = Math.min(100, (paid / total) * 100);
@@ -154,7 +158,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     
     // Kiểm tra xem có payment nào trong tháng hiện tại không
     const currentMonthPayments = loan.payments.filter(p => {
-      if (p.id.startsWith('borrow-')) return false;
+      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+      if (isBorrow) return false;
       const paymentDate = new Date(p.date);
       return paymentDate.getFullYear() === currentYear && 
              paymentDate.getMonth() === currentMonth;
@@ -192,7 +197,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     if (isPaid) {
       // Xóa payment của tháng hiện tại
       const currentMonthPayments = loan.payments.filter(p => {
-        if (p.id.startsWith('borrow-')) return false;
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        if (isBorrow) return false;
         const paymentDate = new Date(p.date);
         return paymentDate.getFullYear() === currentYear && 
                paymentDate.getMonth() === currentMonth;

@@ -270,7 +270,7 @@ function App() {
         
         // Ghi lại lịch sử vay thêm (để tracking)
         const borrowRecord: Payment = {
-          id: generateUUID(),
+          id: `borrow-${generateUUID()}`,
           date: new Date().toISOString(),
           amount: additionalAmount,
           note: note || `Vay thêm ${formatCurrency(additionalAmount)}`
