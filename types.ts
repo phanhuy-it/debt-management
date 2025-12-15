@@ -55,6 +55,16 @@ export interface FixedExpense {
   notes?: string;
 }
 
+export interface Income {
+  id: string;
+  name: string; // Tên nguồn thu nhập (VD: Lương, Freelance, Đầu tư)
+  amount: number; // Số tiền thu nhập hàng tháng
+  receivedDate: number; // Ngày nhận tiền hàng tháng (1-31)
+  payments: Payment[]; // Lịch sử nhận tiền
+  status: LoanStatus;
+  notes?: string;
+}
+
 export interface DashboardStats {
   totalOriginal: number;
   totalPaid: number;

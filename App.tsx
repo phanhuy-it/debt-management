@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home } from 'lucide-react';
-import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense } from './types';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet } from 'lucide-react';
+import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
 import CalendarView from './components/Calendar';
 import CreditCardList from './components/CreditCardList';
 import FixedExpenseList from './components/FixedExpenseList';
-import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import IncomeList from './components/IncomeList';
+import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
 
 // Utility for formatting currency
@@ -15,17 +16,19 @@ export const formatCurrency = (amount: number) => {
 };
 
 // Initial tabs
-type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'CALENDAR';
+type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('DASHBOARD');
   const [loans, setLoans] = useState<Loan[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCardType[]>([]);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
+  const [incomes, setIncomes] = useState<Income[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -34,14 +37,16 @@ function App() {
     const loadData = async () => {
       try {
         setIsLoading(true);
-        const [loadedLoans, loadedCards, loadedExpenses] = await Promise.all([
+        const [loadedLoans, loadedCards, loadedExpenses, loadedIncomes] = await Promise.all([
           loadLoansFromServer(),
           loadCreditCardsFromServer(),
-          loadFixedExpensesFromServer()
+          loadFixedExpensesFromServer(),
+          loadIncomeFromServer()
         ]);
         setLoans(loadedLoans);
         setCreditCards(loadedCards);
         setFixedExpenses(loadedExpenses);
+        setIncomes(loadedIncomes);
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu:', error);
       } finally {
@@ -79,6 +84,11 @@ function App() {
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseDueDate, setExpenseDueDate] = useState<number>(1);
 
+  // Income form fields
+  const [incomeName, setIncomeName] = useState('');
+  const [incomeAmount, setIncomeAmount] = useState('');
+  const [incomeReceivedDate, setIncomeReceivedDate] = useState<number>(1);
+
   // Save data to server whenever loans or creditCards change
   useEffect(() => {
     if (!isLoading && loans.length >= 0) {
@@ -103,6 +113,14 @@ function App() {
       });
     }
   }, [fixedExpenses, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading && incomes.length >= 0) {
+      saveIncomeToServer(incomes).catch(error => {
+        console.error('Lỗi khi lưu dữ liệu thu nhập:', error);
+      });
+    }
+  }, [incomes, isLoading]);
 
   useEffect(() => {
     // Set default date to today when opening modal
@@ -200,6 +218,12 @@ function App() {
     setExpenseName('');
     setExpenseAmount('');
     setExpenseDueDate(1);
+  };
+
+  const resetIncomeForm = () => {
+    setIncomeName('');
+    setIncomeAmount('');
+    setIncomeReceivedDate(1);
   };
 
   const handleDeleteLoan = (id: string) => {
@@ -355,6 +379,63 @@ function App() {
     }));
   };
 
+  // Income Handlers
+  const handleAddIncome = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const newIncome: Income = {
+      id: generateUUID(),
+      name: incomeName,
+      amount: parseFloat(incomeAmount) || 0,
+      receivedDate: incomeReceivedDate,
+      payments: [],
+      status: LoanStatus.ACTIVE
+    };
+
+    setIncomes([...incomes, newIncome]);
+    setShowAddIncomeModal(false);
+    resetIncomeForm();
+  };
+
+  const handleDeleteIncome = (id: string) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa nguồn thu nhập này không?')) {
+      setIncomes(incomes.filter(i => i.id !== id));
+    }
+  };
+
+  const handleAddIncomePayment = (incomeId: string, payment: Payment) => {
+    setIncomes(incomes.map(income => {
+      if (income.id === incomeId) {
+        return { 
+          ...income, 
+          payments: [...income.payments, payment]
+        };
+      }
+      return income;
+    }));
+  };
+
+  const handleRemoveIncomePayment = (incomeId: string, paymentIds: string[]) => {
+    setIncomes(incomes.map(income => {
+      if (income.id === incomeId) {
+        return { 
+          ...income, 
+          payments: income.payments.filter(p => !paymentIds.includes(p.id))
+        };
+      }
+      return income;
+    }));
+  };
+
+  const handleUpdateIncome = (id: string, updatedIncome: Partial<Income>) => {
+    setIncomes(incomes.map(income => {
+      if (income.id === id) {
+        return { ...income, ...updatedIncome };
+      }
+      return income;
+    }));
+  };
+
   const handleAddCardPayment = (cardId: string, payment: Payment) => {
     setCreditCards(creditCards.map(card => {
       if (card.id === cardId) {
@@ -419,7 +500,7 @@ function App() {
     try {
       const importedData = await importDataFromFile(file);
       
-      const totalItems = importedData.loans.length + importedData.creditCards.length + importedData.fixedExpenses.length;
+      const totalItems = importedData.loans.length + importedData.creditCards.length + importedData.fixedExpenses.length + (importedData.incomes?.length || 0);
       
       if (totalItems === 0) {
         alert('File không chứa dữ liệu nào');
@@ -431,8 +512,9 @@ function App() {
       if (importedData.loans.length > 0) parts.push(`${importedData.loans.length} khoản vay`);
       if (importedData.creditCards.length > 0) parts.push(`${importedData.creditCards.length} thẻ tín dụng`);
       if (importedData.fixedExpenses.length > 0) parts.push(`${importedData.fixedExpenses.length} chi tiêu cố định`);
+      if (importedData.incomes && importedData.incomes.length > 0) parts.push(`${importedData.incomes.length} nguồn thu nhập`);
       
-      const currentTotal = loans.length + creditCards.length + fixedExpenses.length;
+      const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length;
       const confirmMessage = currentTotal > 0
         ? `Bạn đang có ${currentTotal} mục dữ liệu. Import sẽ thay thế toàn bộ dữ liệu hiện tại bằng:\n${parts.join(', ')}\n\nBạn có chắc chắn?`
         : `Import ${parts.join(', ')} từ file?\n\nLưu ý: ID sẽ được tự động chuyển đổi sang UUID format.`;
@@ -520,6 +602,13 @@ function App() {
               >
                 <Home size={18} /> <span className="hidden sm:inline">Thêm chi tiêu</span> <span className="sm:hidden">Thêm</span>
               </button>
+            ) : activeTab === 'INCOME' ? (
+              <button 
+                onClick={() => setShowAddIncomeModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+              >
+                <TrendingUp size={18} /> <span className="hidden sm:inline">Thêm thu nhập</span> <span className="sm:hidden">Thêm</span>
+              </button>
             ) : (
               <button 
                 onClick={() => setShowAddModal(true)}
@@ -534,10 +623,11 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-6">
-        {activeTab === 'DASHBOARD' && <Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />}
+        {activeTab === 'DASHBOARD' && <Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} />}
         {activeTab === 'LOANS' && <LoanList loans={loans} onDeleteLoan={handleDeleteLoan} onAddPayment={handleAddPayment} onRemovePayment={handleRemovePayment} onAddLoanAmount={handleAddLoanAmount} onUpdateLoan={handleUpdateLoan} />}
         {activeTab === 'CREDIT_CARDS' && <CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />}
         {activeTab === 'EXPENSES' && <FixedExpenseList fixedExpenses={fixedExpenses} onDeleteExpense={handleDeleteFixedExpense} onAddPayment={handleAddExpensePayment} onRemovePayment={handleRemoveExpensePayment} onUpdateExpense={handleUpdateFixedExpense} />}
+        {activeTab === 'INCOME' && <IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} />}
         {activeTab === 'CALENDAR' && <CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />}
       </main>
 
@@ -607,6 +697,12 @@ function App() {
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'EXPENSES' ? 'bg-white shadow-md text-purple-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <Home size={20} /> Chi tiêu cố định
+          </button>
+          <button 
+            onClick={() => setActiveTab('INCOME')}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'INCOME' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <TrendingUp size={20} /> Thu nhập
           </button>
           <button 
             onClick={() => setActiveTab('CALENDAR')}
@@ -844,6 +940,52 @@ function App() {
 
               <button type="submit" className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition-transform active:scale-95 shadow-lg shadow-purple-200">
                 Lưu chi tiêu cố định
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Income Modal */}
+      {showAddIncomeModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="font-bold text-lg text-slate-800">Thêm thu nhập mới</h2>
+              <button onClick={() => setShowAddIncomeModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleAddIncome} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Tên nguồn thu nhập
+                </label>
+                <input required type="text" placeholder="VD: Lương, Freelance" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={incomeName} onChange={e => setIncomeName(e.target.value)} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Số tiền hàng tháng (VNĐ)
+                </label>
+                <input required type="number" min="0" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={incomeAmount} onChange={e => setIncomeAmount(e.target.value)} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Ngày nhận tiền hàng tháng</label>
+                <select 
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                  value={incomeReceivedDate}
+                  onChange={e => setIncomeReceivedDate(parseInt(e.target.value))}
+                >
+                  {Array.from({length: 31}, (_, i) => i + 1).map(d => (
+                    <option key={d} value={d}>Ngày {d}</option>
+                  ))}
+                </select>
+              </div>
+
+              <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-transform active:scale-95 shadow-lg shadow-emerald-200">
+                Lưu thu nhập
               </button>
             </form>
           </div>

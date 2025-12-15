@@ -1,13 +1,14 @@
 import React, { useMemo } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
-import { Loan, LoanType, CreditCard, FixedExpense, Payment } from '../types';
+import { Loan, LoanType, CreditCard, FixedExpense, Income, Payment } from '../types';
 import { formatCurrency } from '../App';
-import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar } from 'lucide-react';
+import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 
 interface DashboardProps {
   loans: Loan[];
   creditCards: CreditCard[];
   fixedExpenses: FixedExpense[];
+  incomes: Income[];
 }
 
 interface PersonalLoanGroupStats {
@@ -28,7 +29,7 @@ interface UnpaidExpense {
   provider?: string;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses }) => {
+const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes }) => {
   // Kiểm tra xem tháng hiện tại đã được thanh toán chưa
   const isCurrentMonthPaid = (payments: Payment[]): boolean => {
     const now = new Date();
@@ -104,6 +105,38 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   const totalUnpaid = useMemo(() => {
     return unpaidExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   }, [unpaidExpenses]);
+
+  // Tính tổng thu nhập hàng tháng
+  const totalMonthlyIncome = useMemo(() => {
+    return incomes.reduce((sum, income) => sum + income.amount, 0);
+  }, [incomes]);
+
+  // Tính tổng chi tiêu hàng tháng (loans + credit cards + fixed expenses)
+  const totalMonthlyExpenses = useMemo(() => {
+    let total = 0;
+    
+    // Khoản vay ngân hàng
+    loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
+      total += loan.monthlyPayment;
+    });
+    
+    // Thẻ tín dụng (thanh toán tối thiểu)
+    creditCards.forEach(card => {
+      if (card.paymentAmount > 0) {
+        total += card.paymentAmount;
+      }
+    });
+    
+    // Chi tiêu cố định
+    fixedExpenses.forEach(expense => {
+      total += expense.amount;
+    });
+    
+    return total;
+  }, [loans, creditCards, fixedExpenses]);
+
+  // Tính dư/thiếu
+  const monthlyBalance = totalMonthlyIncome - totalMonthlyExpenses;
   
   const stats = useMemo(() => {
     let totalOriginal = 0;
@@ -178,6 +211,69 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* So sánh Thu - Chi */}
+      <div className="bg-gradient-to-br from-emerald-50 to-blue-50 p-6 rounded-xl shadow-sm border border-emerald-200">
+        <h4 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <TrendingUp className="text-emerald-600" size={20} />
+          Tình hình tài chính hàng tháng
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-emerald-100">
+            <p className="text-sm text-slate-600 mb-1">Tổng thu nhập</p>
+            <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(totalMonthlyIncome)}</h3>
+            <p className="text-xs text-slate-500 mt-1">{incomes.length} nguồn thu nhập</p>
+          </div>
+          <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100">
+            <p className="text-sm text-slate-600 mb-1">Tổng chi tiêu</p>
+            <h3 className="text-2xl font-bold text-red-600">{formatCurrency(totalMonthlyExpenses)}</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {loans.filter(l => l.type === LoanType.BANK && l.monthlyPayment > 0).length + 
+               creditCards.filter(c => c.paymentAmount > 0).length + 
+               fixedExpenses.length} khoản chi
+            </p>
+          </div>
+          <div className={`bg-white/80 backdrop-blur-sm p-4 rounded-lg border ${
+            monthlyBalance >= 0 ? 'border-emerald-200' : 'border-red-200'
+          }`}>
+            <p className="text-sm text-slate-600 mb-1">Số dư</p>
+            <h3 className={`text-2xl font-bold ${
+              monthlyBalance >= 0 ? 'text-emerald-600' : 'text-red-600'
+            }`}>
+              {formatCurrency(Math.abs(monthlyBalance))}
+            </h3>
+            <p className={`text-xs font-medium mt-1 ${
+              monthlyBalance >= 0 ? 'text-emerald-700' : 'text-red-700'
+            }`}>
+              {monthlyBalance >= 0 ? (
+                <span className="flex items-center gap-1">
+                  <TrendingUp size={12} /> Dư {formatCurrency(monthlyBalance)}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <TrendingDown size={12} /> Thiếu {formatCurrency(Math.abs(monthlyBalance))}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        {monthlyBalance < 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
+            <p className="text-sm text-red-800">
+              ⚠️ <strong>Cảnh báo:</strong> Chi tiêu của bạn vượt quá thu nhập. 
+              Bạn cần kiểm soát chi tiêu hoặc tăng thu nhập.
+            </p>
+          </div>
+        )}
+        {monthlyBalance >= 0 && monthlyBalance > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mt-4">
+            <p className="text-sm text-emerald-800">
+              ✅ <strong>Tốt:</strong> Bạn đang có số dư dương. 
+              Có thể sử dụng để trả nợ hoặc tiết kiệm.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Chi phí chưa thanh toán trong tháng hiện tại */}
       {unpaidExpenses.length > 0 && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">

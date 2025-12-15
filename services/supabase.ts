@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Loan, CreditCard, FixedExpense, Payment } from '../types';
+import { Loan, CreditCard, FixedExpense, Income, Payment } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -55,6 +55,18 @@ export interface FixedExpenseRow {
   updated_at: string;
 }
 
+export interface IncomeRow {
+  id: string;
+  name: string;
+  amount: number;
+  received_date: number;
+  status: string;
+  notes: string | null;
+  payments: Payment[];
+  created_at: string;
+  updated_at: string;
+}
+
 // Convert database row to app type
 export const loanRowToLoan = (row: LoanRow): Loan => ({
   id: row.id,
@@ -89,6 +101,16 @@ export const fixedExpenseRowToFixedExpense = (row: FixedExpenseRow): FixedExpens
   name: row.name,
   amount: Number(row.amount),
   dueDate: row.due_date,
+  status: row.status as 'ACTIVE' | 'COMPLETED',
+  notes: row.notes || undefined,
+  payments: Array.isArray(row.payments) ? row.payments : []
+});
+
+export const incomeRowToIncome = (row: IncomeRow): Income => ({
+  id: row.id,
+  name: row.name,
+  amount: Number(row.amount),
+  receivedDate: row.received_date,
   status: row.status as 'ACTIVE' | 'COMPLETED',
   notes: row.notes || undefined,
   payments: Array.isArray(row.payments) ? row.payments : []
@@ -131,5 +153,15 @@ export const fixedExpenseToFixedExpenseRow = (expense: FixedExpense): Partial<Fi
   status: expense.status,
   notes: expense.notes || null,
   payments: expense.payments || []
+});
+
+export const incomeToIncomeRow = (income: Income): Partial<IncomeRow> => ({
+  id: income.id,
+  name: income.name,
+  amount: income.amount,
+  received_date: income.receivedDate,
+  status: income.status,
+  notes: income.notes || null,
+  payments: income.payments || []
 });
 
