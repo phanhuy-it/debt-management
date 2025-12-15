@@ -9,6 +9,7 @@ build
 .env
 .env.local
 .env.*.local
+!.env.example
 
 # IDE
 .vscode
@@ -21,6 +22,6 @@ build
 .DS_Store
 Thumbs.db
 
-# Data files
-data/database.json
-data/credit-cards.json
+# Data files (ignore nhưng giữ thư mục data/)
+data/*.json
+!data/.gitkeep

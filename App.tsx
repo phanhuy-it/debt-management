@@ -7,6 +7,7 @@ import CalendarView from './components/Calendar';
 import CreditCardList from './components/CreditCardList';
 import FixedExpenseList from './components/FixedExpenseList';
 import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import { generateUUID, migrateIdToUUID } from './utils/uuid';
 
 // Utility for formatting currency
 export const formatCurrency = (amount: number) => {
@@ -141,7 +142,7 @@ function App() {
         const now = new Date();
         const pastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); // Ngày 1 của tháng trước
         payments.push({
-          id: `init-${Date.now()}`,
+          id: generateUUID(),
           date: pastDate.toISOString(),
           amount: paidTerms * monthlyPayment,
           note: `Đã thanh toán ${paidTerms} kỳ trước`
@@ -156,7 +157,7 @@ function App() {
     }
 
     const loan: Loan = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       name: loanName,
       provider: newProvider,
       type: newType,
@@ -245,7 +246,7 @@ function App() {
         
         // Ghi lại lịch sử vay thêm (để tracking)
         const borrowRecord: Payment = {
-          id: `borrow-${Date.now()}`,
+          id: generateUUID(),
           date: new Date().toISOString(),
           amount: additionalAmount,
           note: note || `Vay thêm ${formatCurrency(additionalAmount)}`
@@ -266,7 +267,7 @@ function App() {
     e.preventDefault();
     
     const newCard: CreditCardType = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       name: cardName,
       provider: cardProvider,
       creditLimit: parseFloat(cardLimit) || 0,
@@ -302,7 +303,7 @@ function App() {
     e.preventDefault();
     
     const newExpense: FixedExpense = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       name: expenseName,
       amount: parseFloat(expenseAmount) || 0,
       dueDate: expenseDueDate,

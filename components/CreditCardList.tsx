@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { CreditCard, Payment } from '../types';
 import { formatCurrency } from '../App';
+import { generateUUID } from '../utils/uuid';
 import { Trash2, History, CreditCard as CreditCardIcon, Calendar, DollarSign, TrendingDown, X, AlertTriangle, Edit } from 'lucide-react';
 
 interface CreditCardListProps {
@@ -40,7 +41,7 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
     if (!selectedCard || !amount) return;
 
     const newPayment: Payment = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       date: new Date().toISOString(),
       amount: parseFloat(amount),
       note: note || 'Thanh toán thẻ tín dụng'
@@ -260,7 +261,7 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
                   if (card.paymentAmount > 0) {
                     if (window.confirm(`Xác nhận thanh toán ${formatCurrency(card.paymentAmount)} cho thẻ "${card.name}"?`)) {
                       const newPayment: Payment = {
-                        id: Date.now().toString(),
+                        id: generateUUID(),
                         date: new Date().toISOString(),
                         amount: card.paymentAmount,
                         note: `Thanh toán tối thiểu - ${new Date().toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}`

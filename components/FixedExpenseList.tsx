@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { FixedExpense, Payment } from '../types';
 import { formatCurrency } from '../App';
+import { generateUUID } from '../utils/uuid';
 import { Trash2, History, Home, Calendar, DollarSign, X, Edit, CheckCircle2, Circle } from 'lucide-react';
 
 interface FixedExpenseListProps {
@@ -37,7 +38,7 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
     if (!selectedExpense || !amount) return;
 
     const newPayment: Payment = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       date: new Date().toISOString(),
       amount: parseFloat(amount),
       note: note || 'Thanh toán chi tiêu cố định'
@@ -162,7 +163,7 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
                   // Tự động thanh toán với số tiền cố định
                   if (window.confirm(`Xác nhận thanh toán ${formatCurrency(expense.amount)} cho "${expense.name}"?`)) {
                     const newPayment: Payment = {
-                      id: Date.now().toString(),
+                      id: generateUUID(),
                       date: new Date().toISOString(),
                       amount: expense.amount,
                       note: `Thanh toán tháng ${new Date().toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}`

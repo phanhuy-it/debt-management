@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Loan, LoanType, Payment } from '../types';
 import { formatCurrency } from '../App';
+import { generateUUID } from '../utils/uuid';
 import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2 } from 'lucide-react';
 
 interface LoanListProps {
@@ -34,7 +35,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       if (window.confirm(`Xác nhận trả ${formatCurrency(loan.monthlyPayment)} cho khoản vay "${loan.name}"?`)) {
         // Tự động trả với số tiền trả hàng tháng cho vay ngân hàng
         const newPayment: Payment = {
-          id: Date.now().toString(),
+          id: generateUUID(),
           date: new Date().toISOString(),
           amount: loan.monthlyPayment,
           note: `Thanh toán hàng tháng - ${new Date().toLocaleDateString('vi-VN')}`
@@ -50,7 +51,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
     // Logic: Ngày thanh toán tự động lấy ngày giờ hiện tại (now)
     const newPayment: Payment = {
-      id: Date.now().toString(),
+      id: generateUUID(),
       date: new Date().toISOString(),
       amount: parseFloat(amount),
       note: note || 'Thanh toán'
@@ -202,7 +203,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     } else {
       // Thêm payment cho tháng hiện tại
       const newPayment: Payment = {
-        id: Date.now().toString(),
+        id: generateUUID(),
         date: new Date().toISOString(),
         amount: loan.monthlyPayment,
         note: `Thanh toán hàng tháng - ${now.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}`

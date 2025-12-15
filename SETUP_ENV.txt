@@ -1,0 +1,16 @@
+Các bước cấu hình .env:
+
+1. Tạo file .env ở thư mục root (nếu chưa có)
+2. Thêm nội dung sau:
+
+VITE_SUPABASE_URL=https://ziuaisolotuzjiyeelvh.supabase.co
+VITE_SUPABASE_ANON_KEY=PASTE_YOUR_ANON_KEY_HERE
+
+3. Lấy Anon Key:
+   - Vào Supabase Dashboard
+   - Settings > API
+   - Copy key "anon public" (không copy "service_role")
+   - Dán vào .env thay cho PASTE_YOUR_ANON_KEY_HERE
+
+4. Restart dev server sau khi cập nhật
+

@@ -48,6 +48,20 @@ async function ensureCreditCardsFile() {
 // Khởi tạo khi server start
 ensureCreditCardsFile();
 
+const FIXED_EXPENSES_FILE = path.join(DATA_DIR, 'fixed-expenses.json');
+
+// Đảm bảo file fixed-expenses.json tồn tại
+async function ensureFixedExpensesFile() {
+  try {
+    await fs.access(FIXED_EXPENSES_FILE);
+  } catch {
+    await fs.writeFile(FIXED_EXPENSES_FILE, JSON.stringify({ fixedExpenses: [] }, null, 2), 'utf-8');
+  }
+}
+
+// Khởi tạo khi server start
+ensureFixedExpensesFile();
+
 // GET: Lấy tất cả dữ liệu khoản vay
 app.get('/api/loans', async (req, res) => {
   try {
@@ -157,6 +171,49 @@ app.post('/api/credit-cards', async (req, res) => {
   }
 });
 
+// GET: Lấy tất cả chi tiêu cố định
+app.get('/api/fixed-expenses', async (req, res) => {
+  try {
+    const data = await fs.readFile(FIXED_EXPENSES_FILE, 'utf-8');
+    const jsonData = JSON.parse(data);
+    res.json(jsonData.fixedExpenses || []);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      res.json([]);
+    } else {
+      console.error('Lỗi khi đọc dữ liệu chi tiêu cố định:', error);
+      res.status(500).json({ error: 'Không thể đọc dữ liệu' });
+    }
+  }
+});
+
+// POST: Lưu chi tiêu cố định
+app.post('/api/fixed-expenses', async (req, res) => {
+  try {
+    const fixedExpenses = req.body.fixedExpenses || req.body;
+    
+    if (!Array.isArray(fixedExpenses)) {
+      return res.status(400).json({ error: 'Dữ liệu phải là một mảng' });
+    }
+
+    const data = {
+      version: '1.0',
+      lastUpdated: new Date().toISOString(),
+      fixedExpenses: fixedExpenses
+    };
+
+    await fs.writeFile(FIXED_EXPENSES_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    res.json({ 
+      success: true, 
+      message: 'Đã lưu dữ liệu thành công',
+      count: fixedExpenses.length 
+    });
+  } catch (error) {
+    console.error('Lỗi khi lưu dữ liệu chi tiêu cố định:', error);
+    res.status(500).json({ error: 'Không thể lưu dữ liệu' });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -188,6 +245,9 @@ setupStaticFiles();
 
 app.listen(PORT, () => {
   console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);
-  console.log(`📁 Dữ liệu được lưu tại: ${DATA_FILE}`);
+  console.log(`📁 Dữ liệu được lưu tại: ${DATA_DIR}`);
+  console.log(`   - Loans: ${DATA_FILE}`);
+  console.log(`   - Credit Cards: ${CREDIT_CARDS_FILE}`);
+  console.log(`   - Fixed Expenses: ${FIXED_EXPENSES_FILE}`);
 });
 

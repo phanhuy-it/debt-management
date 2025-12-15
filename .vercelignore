@@ -1,0 +1,9 @@
+# Ignore files không cần cho Vercel (chỉ deploy frontend)
+server/
+data/
+node_modules/
+*.md
+.env
+.env.local
+.DS_Store
+
