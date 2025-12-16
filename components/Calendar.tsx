@@ -256,103 +256,107 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
 
         {/* Calendar Grid */}
         <div className="p-4">
-          {/* Week Days Header */}
-          <div className="grid grid-cols-7 gap-2 mb-2">
-            {weekDays.map((day, index) => (
-              <div
-                key={index}
-                className="text-center text-sm font-semibold text-slate-600 py-2"
-              >
-                {day}
+          <div className="overflow-x-auto">
+            <div className="min-w-[700px]">
+              {/* Week Days Header */}
+              <div className="grid grid-cols-7 gap-2 mb-2">
+                {weekDays.map((day, index) => (
+                  <div
+                    key={index}
+                    className="text-center text-sm font-semibold text-slate-600 py-2"
+                  >
+                    {day}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {/* Calendar Days */}
-          <div className="grid grid-cols-7 gap-2">
-            {calendarDays.map((dayInfo, index) => (
-              <div
-                key={index}
-                onClick={() => setSelectedDay(dayInfo)}
-                className={`
-                  min-h-[100px] border rounded-lg p-2 transition-all
-                  ${dayInfo.isCurrentMonth ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 opacity-50'}
-                  ${dayInfo.isToday ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50' : ''}
-                  ${dayInfo.dueAmount > 0 ? 'border-orange-300 bg-orange-50' : ''}
-                  hover:shadow-md cursor-pointer
-                `}
-              >
-                <div className="flex items-start justify-between mb-1">
-                  <span
+              {/* Calendar Days */}
+              <div className="grid grid-cols-7 gap-2">
+                {calendarDays.map((dayInfo, index) => (
+                  <div
+                    key={index}
+                    onClick={() => setSelectedDay(dayInfo)}
                     className={`
-                      text-sm font-medium
-                      ${dayInfo.isToday ? 'text-blue-700 font-bold' : 'text-slate-700'}
-                      ${!dayInfo.isCurrentMonth ? 'text-slate-400' : ''}
+                      min-h-[100px] border rounded-lg p-2 transition-all
+                      ${dayInfo.isCurrentMonth ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100 opacity-50'}
+                      ${dayInfo.isToday ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50' : ''}
+                      ${dayInfo.dueAmount > 0 ? 'border-orange-300 bg-orange-50' : ''}
+                      hover:shadow-md cursor-pointer
                     `}
                   >
-                    {dayInfo.day}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {dayInfo.dueLoans.length > 0 && (
-                      <DollarSign size={14} className="text-orange-600 flex-shrink-0" />
-                    )}
-                    {dayInfo.dueCards.length > 0 && (
-                      <CreditCardIcon size={14} className="text-indigo-600 flex-shrink-0" />
-                    )}
-                    {dayInfo.dueExpenses.length > 0 && (
-                      <Home size={14} className="text-purple-600 flex-shrink-0" />
-                    )}
-                  </div>
-                </div>
-                
-                {dayInfo.dueAmount > 0 && dayInfo.isCurrentMonth && (
-                  <div className="mt-1 space-y-1">
-                    <div className="text-xs font-semibold text-orange-700">
-                      {formatCurrency(dayInfo.dueAmount)}
+                    <div className="flex items-start justify-between mb-1">
+                      <span
+                        className={`
+                          text-sm font-medium
+                          ${dayInfo.isToday ? 'text-blue-700 font-bold' : 'text-slate-700'}
+                          ${!dayInfo.isCurrentMonth ? 'text-slate-400' : ''}
+                        `}
+                      >
+                        {dayInfo.day}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {dayInfo.dueLoans.length > 0 && (
+                          <DollarSign size={14} className="text-orange-600 flex-shrink-0" />
+                        )}
+                        {dayInfo.dueCards.length > 0 && (
+                          <CreditCardIcon size={14} className="text-indigo-600 flex-shrink-0" />
+                        )}
+                        {dayInfo.dueExpenses.length > 0 && (
+                          <Home size={14} className="text-purple-600 flex-shrink-0" />
+                        )}
+                      </div>
                     </div>
-                    {(dayInfo.dueLoans.length > 0 || dayInfo.dueCards.length > 0) && (
-                      <div className="space-y-0.5">
-                        {/* Hiển thị khoản vay */}
-                        {dayInfo.dueLoans.slice(0, 2).map(loan => (
-                          <div
-                            key={loan.id}
-                            className="text-[10px] text-orange-600 truncate bg-orange-100 px-1 py-0.5 rounded"
-                            title={loan.name}
-                          >
-                            {loan.provider}
-                          </div>
-                        ))}
-                        {/* Hiển thị thẻ tín dụng */}
-                        {dayInfo.dueCards.slice(0, Math.max(0, 2 - dayInfo.dueLoans.length)).map(card => (
-                          <div
-                            key={card.id}
-                            className="text-[10px] text-indigo-600 truncate bg-indigo-100 px-1 py-0.5 rounded"
-                            title={card.name}
-                          >
-                            {card.provider}
-                          </div>
-                        ))}
-                        {/* Hiển thị chi tiêu cố định */}
-                        {dayInfo.dueExpenses.slice(0, Math.max(0, 2 - dayInfo.dueLoans.length - dayInfo.dueCards.length)).map(expense => (
-                          <div
-                            key={expense.id}
-                            className="text-[10px] text-purple-600 truncate bg-purple-100 px-1 py-0.5 rounded"
-                            title={expense.name}
-                          >
-                            {expense.name}
-                          </div>
-                        ))}
-                        {(dayInfo.dueLoans.length + dayInfo.dueCards.length + dayInfo.dueExpenses.length) > 2 && (
-                          <div className="text-[10px] text-orange-500">
-                            +{(dayInfo.dueLoans.length + dayInfo.dueCards.length + dayInfo.dueExpenses.length) - 2} khoản
+                    
+                    {dayInfo.dueAmount > 0 && dayInfo.isCurrentMonth && (
+                      <div className="mt-1 space-y-1">
+                        <div className="text-xs font-semibold text-orange-700">
+                          {formatCurrency(dayInfo.dueAmount)}
+                        </div>
+                        {(dayInfo.dueLoans.length > 0 || dayInfo.dueCards.length > 0) && (
+                          <div className="space-y-0.5">
+                            {/* Hiển thị khoản vay */}
+                            {dayInfo.dueLoans.slice(0, 2).map(loan => (
+                              <div
+                                key={loan.id}
+                                className="text-[10px] text-orange-600 truncate bg-orange-100 px-1 py-0.5 rounded"
+                                title={loan.name}
+                              >
+                                {loan.provider}
+                              </div>
+                            ))}
+                            {/* Hiển thị thẻ tín dụng */}
+                            {dayInfo.dueCards.slice(0, Math.max(0, 2 - dayInfo.dueLoans.length)).map(card => (
+                              <div
+                                key={card.id}
+                                className="text-[10px] text-indigo-600 truncate bg-indigo-100 px-1 py-0.5 rounded"
+                                title={card.name}
+                              >
+                                {card.provider}
+                              </div>
+                            ))}
+                            {/* Hiển thị chi tiêu cố định */}
+                            {dayInfo.dueExpenses.slice(0, Math.max(0, 2 - dayInfo.dueLoans.length - dayInfo.dueCards.length)).map(expense => (
+                              <div
+                                key={expense.id}
+                                className="text-[10px] text-purple-600 truncate bg-purple-100 px-1 py-0.5 rounded"
+                                title={expense.name}
+                              >
+                                {expense.name}
+                              </div>
+                            ))}
+                            {(dayInfo.dueLoans.length + dayInfo.dueCards.length + dayInfo.dueExpenses.length) > 2 && (
+                              <div className="text-[10px] text-orange-500">
+                                +{(dayInfo.dueLoans.length + dayInfo.dueCards.length + dayInfo.dueExpenses.length) - 2} khoản
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
                     )}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       </div>

@@ -1,14 +1,18 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Payment } from '../types';
 import { formatCurrency } from '../App';
-import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown } from 'lucide-react';
+import { generateUUID } from '../utils/uuid';
+import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X } from 'lucide-react';
 
 interface DashboardProps {
   loans: Loan[];
   creditCards: CreditCard[];
   fixedExpenses: FixedExpense[];
   incomes: Income[];
+  onAddLoanPayment: (loanId: string, payment: Payment) => void;
+  onAddCardPayment: (cardId: string, payment: Payment) => void;
+  onAddExpensePayment: (expenseId: string, payment: Payment) => void;
 }
 
 interface PersonalLoanGroupStats {
@@ -29,7 +33,9 @@ interface UnpaidExpense {
   provider?: string;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes }) => {
+const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes, onAddLoanPayment, onAddCardPayment, onAddExpensePayment }) => {
+  const [selectedExpense, setSelectedExpense] = useState<UnpaidExpense | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   // Kiểm tra xem tháng hiện tại đã được thanh toán chưa
   const isCurrentMonthPaid = (payments: Payment[]): boolean => {
     const now = new Date();
@@ -220,6 +226,48 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     };
   });
 
+  // Lấy chi tiết đầy đủ của expense được chọn
+  const getExpenseDetails = (expense: UnpaidExpense) => {
+    if (expense.type === 'loan') {
+      return loans.find(l => l.id === expense.id);
+    } else if (expense.type === 'creditCard') {
+      return creditCards.find(c => c.id === expense.id);
+    } else {
+      return fixedExpenses.find(e => e.id === expense.id);
+    }
+  };
+
+  const handleExpenseClick = (expense: UnpaidExpense) => {
+    setSelectedExpense(expense);
+    setShowDetailModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowDetailModal(false);
+    setSelectedExpense(null);
+  };
+
+  const handlePayment = () => {
+    if (!selectedExpense) return;
+
+    const payment: Payment = {
+      id: generateUUID(),
+      date: new Date().toISOString(),
+      amount: selectedExpense.amount,
+      note: `Thanh toán hàng tháng - ${new Date().toLocaleDateString('vi-VN')}`
+    };
+
+    if (selectedExpense.type === 'loan') {
+      onAddLoanPayment(selectedExpense.id, payment);
+    } else if (selectedExpense.type === 'creditCard') {
+      onAddCardPayment(selectedExpense.id, payment);
+    } else {
+      onAddExpensePayment(selectedExpense.id, payment);
+    }
+
+    handleCloseModal();
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* So sánh Thu - Chi */}
@@ -311,10 +359,11 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
               return (
                 <div
                   key={expense.id}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                  onClick={() => handleExpenseClick(expense)}
+                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
                     isOverdue 
-                      ? 'bg-red-50 border-red-200' 
-                      : 'bg-slate-50 border-slate-200'
+                      ? 'bg-red-50 border-red-200 hover:bg-red-100' 
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -424,6 +473,152 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             <div className="h-32 flex items-center justify-center text-slate-400">Chưa có khoản vay ngân hàng để hiển thị biểu đồ</div>
            )}
       </div>
+
+      {/* Modal chi tiết và thanh toán */}
+      {showDetailModal && selectedExpense && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" style={{ marginTop: 0 }}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Chi tiết khoản thanh toán</h3>
+                <button
+                  onClick={handleCloseModal}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X size={20} className="text-slate-500" />
+                </button>
+              </div>
+
+              {/* Chi tiết */}
+              {(() => {
+                const details = getExpenseDetails(selectedExpense);
+                const now = new Date();
+                const isOverdue = now.getDate() > selectedExpense.dueDate;
+                const IconComponent = selectedExpense.type === 'loan' 
+                  ? Wallet 
+                  : selectedExpense.type === 'creditCard' 
+                  ? CreditCardIcon 
+                  : Home;
+
+                return (
+                  <div className="space-y-4">
+                    {/* Icon và tên */}
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded-lg ${
+                        selectedExpense.type === 'loan' 
+                          ? 'bg-blue-100 text-blue-600'
+                          : selectedExpense.type === 'creditCard'
+                          ? 'bg-indigo-100 text-indigo-600'
+                          : 'bg-purple-100 text-purple-600'
+                      }`}>
+                        <IconComponent size={24} />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-semibold text-slate-900">{selectedExpense.name}</h4>
+                        {selectedExpense.provider && (
+                          <p className="text-sm text-slate-500">{selectedExpense.provider}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Loại */}
+                    <div className="bg-slate-50 rounded-lg p-3">
+                      <p className="text-xs text-slate-500 mb-1">Loại</p>
+                      <p className="font-medium text-slate-900">
+                        {selectedExpense.type === 'loan' 
+                          ? 'Khoản vay ngân hàng'
+                          : selectedExpense.type === 'creditCard'
+                          ? 'Thẻ tín dụng'
+                          : 'Chi tiêu cố định'}
+                      </p>
+                    </div>
+
+                    {/* Số tiền */}
+                    <div className="bg-slate-50 rounded-lg p-3">
+                      <p className="text-xs text-slate-500 mb-1">Số tiền cần thanh toán</p>
+                      <p className="text-2xl font-bold text-rose-600">{formatCurrency(selectedExpense.amount)}</p>
+                    </div>
+
+                    {/* Ngày đến hạn */}
+                    <div className="bg-slate-50 rounded-lg p-3">
+                      <p className="text-xs text-slate-500 mb-1">Ngày đến hạn</p>
+                      <div className="flex items-center gap-2">
+                        <Calendar size={16} className="text-slate-500" />
+                        <p className={`font-medium ${isOverdue ? 'text-red-600' : 'text-slate-900'}`}>
+                          Ngày {selectedExpense.dueDate} hàng tháng
+                        </p>
+                        {isOverdue && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                            Quá hạn
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Thông tin bổ sung */}
+                    {details && (
+                      <>
+                        {selectedExpense.type === 'loan' && (details as Loan) && (
+                          <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">Số tiền gốc</p>
+                              <p className="font-medium text-slate-900">{formatCurrency((details as Loan).originalAmount)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">Đã thanh toán</p>
+                              <p className="font-medium text-emerald-600">
+                                {formatCurrency((details as Loan).payments
+                                  .filter(p => {
+                                    const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+                                    return !isBorrow;
+                                  })
+                                  .reduce((acc, p) => acc + p.amount, 0))}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">Còn lại</p>
+                              <p className="font-medium text-rose-600">
+                                {formatCurrency(Math.max(0, (details as Loan).originalAmount - (details as Loan).payments
+                                  .filter(p => {
+                                    const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+                                    return !isBorrow;
+                                  })
+                                  .reduce((acc, p) => acc + p.amount, 0)))}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        {selectedExpense.type === 'creditCard' && (details as CreditCard) && (
+                          <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">Hạn mức</p>
+                              <p className="font-medium text-slate-900">{formatCurrency((details as CreditCard).creditLimit)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">Tổng dư nợ</p>
+                              <p className="font-medium text-rose-600">{formatCurrency((details as CreditCard).totalDebt)}</p>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Nút thanh toán */}
+                    <button
+                      onClick={handlePayment}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Wallet size={20} />
+                      Thanh Toán
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

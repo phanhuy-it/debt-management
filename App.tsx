@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon } from 'lucide-react';
 import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
@@ -7,6 +8,7 @@ import CalendarView from './components/Calendar';
 import CreditCardList from './components/CreditCardList';
 import FixedExpenseList from './components/FixedExpenseList';
 import IncomeList from './components/IncomeList';
+import PaymentRoadmap from './components/PaymentRoadmap';
 import Login from './components/Login';
 import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
@@ -17,15 +19,27 @@ export const formatCurrency = (amount: number) => {
 };
 
 // Initial tabs
-type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR';
+type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR' | 'ROADMAP';
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    // Check if user is already logged in
-    const auth = localStorage.getItem('debt_app_auth');
-    return auth === 'true';
-  });
-  const [activeTab, setActiveTab] = useState<Tab>('DASHBOARD');
+// Helper function to get tab from pathname
+const getTabFromPath = (pathname: string): Tab => {
+  if (pathname === '/' || pathname === '/dashboard') return 'DASHBOARD';
+  if (pathname === '/loans') return 'LOANS';
+  if (pathname === '/credit-cards') return 'CREDIT_CARDS';
+  if (pathname === '/expenses') return 'EXPENSES';
+  if (pathname === '/income') return 'INCOME';
+  if (pathname === '/calendar') return 'CALENDAR';
+  if (pathname === '/roadmap') return 'ROADMAP';
+  return 'DASHBOARD';
+};
+
+interface AppContentProps {
+  handleLogout: () => void;
+}
+
+function AppContent({ handleLogout }: AppContentProps) {
+  const location = useLocation();
+  const activeTab = getTabFromPath(location.pathname);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCardType[]>([]);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
@@ -37,18 +51,6 @@ function App() {
   const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleLogin = () => {
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    if (window.confirm('Bạn có chắc chắn muốn đăng xuất?')) {
-      localStorage.removeItem('debt_app_auth');
-      localStorage.removeItem('debt_app_auth_time');
-      setIsAuthenticated(false);
-    }
-  };
 
   // Load data from server on mount
   useEffect(() => {
@@ -567,11 +569,6 @@ function App() {
   // Calculate total for preview (Bank only)
   const previewBankTotal = (parseFloat(newMonthlyPayment) || 0) * (parseInt(newTerm) || 0);
 
-  // Show login screen if not authenticated
-  if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} />;
-  }
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -589,12 +586,12 @@ function App() {
       {/* Top Navigation / Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <Link to="/dashboard" className="flex items-center gap-2">
             <div className="bg-emerald-600 text-white p-1.5 rounded-lg">
                <span className="font-bold text-lg">Debt</span>
             </div>
             <h1 className="font-bold text-xl text-slate-800 tracking-tight hidden sm:block">Quản Lý</h1>
-          </div>
+          </Link>
           
           <div className="flex items-center gap-2">
             <button 
@@ -653,93 +650,110 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-6">
-        {activeTab === 'DASHBOARD' && <Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} />}
-        {activeTab === 'LOANS' && <LoanList loans={loans} onDeleteLoan={handleDeleteLoan} onAddPayment={handleAddPayment} onRemovePayment={handleRemovePayment} onAddLoanAmount={handleAddLoanAmount} onUpdateLoan={handleUpdateLoan} />}
-        {activeTab === 'CREDIT_CARDS' && <CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />}
-        {activeTab === 'EXPENSES' && <FixedExpenseList fixedExpenses={fixedExpenses} onDeleteExpense={handleDeleteFixedExpense} onAddPayment={handleAddExpensePayment} onRemovePayment={handleRemoveExpensePayment} onUpdateExpense={handleUpdateFixedExpense} />}
-        {activeTab === 'INCOME' && <IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} />}
-        {activeTab === 'CALENDAR' && <CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />}
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} onAddLoanPayment={handleAddPayment} onAddCardPayment={handleAddCardPayment} onAddExpensePayment={handleAddExpensePayment} />} />
+          <Route path="/loans" element={<LoanList loans={loans} onDeleteLoan={handleDeleteLoan} onAddPayment={handleAddPayment} onRemovePayment={handleRemovePayment} onAddLoanAmount={handleAddLoanAmount} onUpdateLoan={handleUpdateLoan} />} />
+          <Route path="/credit-cards" element={<CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />} />
+          <Route path="/expenses" element={<FixedExpenseList fixedExpenses={fixedExpenses} onDeleteExpense={handleDeleteFixedExpense} onAddPayment={handleAddExpensePayment} onRemovePayment={handleRemoveExpensePayment} onUpdateExpense={handleUpdateFixedExpense} />} />
+          <Route path="/income" element={<IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} />} />
+          <Route path="/calendar" element={<CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />} />
+          <Route path="/roadmap" element={<PaymentRoadmap loans={loans} />} />
+        </Routes>
       </main>
 
       {/* Mobile Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 md:hidden z-20">
         <div className="flex justify-around items-center h-16">
-          <button 
-            onClick={() => setActiveTab('DASHBOARD')}
+          <Link 
+            to="/dashboard"
             className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'DASHBOARD' ? 'text-emerald-600' : 'text-slate-400'}`}
           >
             <LayoutDashboard size={20} />
             <span className="text-[10px] font-medium">Tổng quan</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('LOANS')}
+          </Link>
+          <Link 
+            to="/loans"
             className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'LOANS' ? 'text-emerald-600' : 'text-slate-400'}`}
           >
             <List size={20} />
             <span className="text-[10px] font-medium">Danh sách</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('CREDIT_CARDS')}
+          </Link>
+          <Link 
+            to="/credit-cards"
             className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'CREDIT_CARDS' ? 'text-emerald-600' : 'text-slate-400'}`}
           >
             <CreditCard size={20} />
             <span className="text-[10px] font-medium">Thẻ</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('EXPENSES')}
+          </Link>
+          <Link 
+            to="/expenses"
             className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'EXPENSES' ? 'text-emerald-600' : 'text-slate-400'}`}
           >
             <Home size={20} />
             <span className="text-[10px] font-medium">Chi tiêu</span>
-          </button>
-          <button 
-            onClick={() => setActiveTab('CALENDAR')}
+          </Link>
+          <Link 
+            to="/calendar"
             className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'CALENDAR' ? 'text-emerald-600' : 'text-slate-400'}`}
           >
             <Calendar size={20} />
             <span className="text-[10px] font-medium">Lịch</span>
-          </button>
+          </Link>
+          <Link 
+            to="/roadmap"
+            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'ROADMAP' ? 'text-emerald-600' : 'text-slate-400'}`}
+          >
+            <RouteIcon size={20} />
+            <span className="text-[10px] font-medium">Lộ trình</span>
+          </Link>
         </div>
       </div>
 
       {/* Desktop Sidebar / Tabs */}
       <div className="hidden md:flex fixed top-20 left-[max(0px,calc(50%-42rem))] flex-col gap-2 p-4">
-         <button 
-            onClick={() => setActiveTab('DASHBOARD')}
+         <Link 
+            to="/dashboard"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'DASHBOARD' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <LayoutDashboard size={20} /> Tổng quan
-          </button>
-          <button 
-            onClick={() => setActiveTab('LOANS')}
+          </Link>
+          <Link 
+            to="/loans"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'LOANS' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <List size={20} /> Danh sách
-          </button>
-          <button 
-            onClick={() => setActiveTab('CREDIT_CARDS')}
+          </Link>
+          <Link 
+            to="/credit-cards"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'CREDIT_CARDS' ? 'bg-white shadow-md text-indigo-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <CreditCard size={20} /> Thẻ tín dụng
-          </button>
-          <button 
-            onClick={() => setActiveTab('EXPENSES')}
+          </Link>
+          <Link 
+            to="/expenses"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'EXPENSES' ? 'bg-white shadow-md text-purple-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <Home size={20} /> Chi tiêu cố định
-          </button>
-          <button 
-            onClick={() => setActiveTab('INCOME')}
+          </Link>
+          <Link 
+            to="/income"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'INCOME' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <TrendingUp size={20} /> Thu nhập
-          </button>
-          <button 
-            onClick={() => setActiveTab('CALENDAR')}
+          </Link>
+          <Link 
+            to="/calendar"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'CALENDAR' ? 'bg-white shadow-md text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <Calendar size={20} /> Lịch thanh toán
-          </button>
+          </Link>
+          <Link 
+            to="/roadmap"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ROADMAP' ? 'bg-white shadow-md text-orange-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <RouteIcon size={20} /> Lộ trình
+          </Link>
       </div>
 
       {/* Add Loan Modal */}
@@ -1087,6 +1101,37 @@ function App() {
         </button>
       </div>
     </div>
+  );
+}
+
+function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    // Check if user is already logged in
+    const auth = localStorage.getItem('debt_app_auth');
+    return auth === 'true';
+  });
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    if (window.confirm('Bạn có chắc chắn muốn đăng xuất?')) {
+      localStorage.removeItem('debt_app_auth');
+      localStorage.removeItem('debt_app_auth_time');
+      setIsAuthenticated(false);
+    }
+  };
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  return (
+    <BrowserRouter>
+      <AppContent handleLogout={handleLogout} />
+    </BrowserRouter>
   );
 }
 
