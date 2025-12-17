@@ -3,6 +3,7 @@ import { CreditCard, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
 import { Trash2, History, CreditCard as CreditCardIcon, Calendar, DollarSign, TrendingDown, X, AlertTriangle, Edit } from 'lucide-react';
+import { Amount } from './AmountVisibility';
 
 interface CreditCardListProps {
   creditCards: CreditCard[];
@@ -155,13 +156,17 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
     const nearLimit = isNearLimit(card);
 
     return (
-      <div key={card.id} className={`bg-white border-b transition-colors ${
-        overdue
-          ? 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
-          : nearLimit
-          ? 'border-orange-200 bg-orange-50/30 hover:bg-orange-50/50'
-          : 'border-slate-100 hover:bg-slate-50'
-      }`}>
+      <div
+        key={card.id}
+        onClick={() => setShowHistory(card.id)}
+        className={`bg-white border-b transition-colors ${
+          overdue
+            ? 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
+            : nearLimit
+            ? 'border-orange-200 bg-orange-50/30 hover:bg-orange-50/50'
+            : 'border-slate-100 hover:bg-slate-50'
+        } cursor-pointer`}
+      >
         {/* Dòng 1: Thông tin chính */}
         <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
           {/* Tên thẻ */}
@@ -186,28 +191,32 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
           {/* Hạn mức thẻ */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Hạn mức</div>
-            <div className="font-semibold text-slate-900">{formatCurrency(card.creditLimit)}</div>
+            <div className="font-semibold text-slate-900">
+              <Amount value={card.creditLimit} id={`card-${card.id}-limit`} />
+            </div>
           </div>
 
           {/* Tổng dư nợ */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Dư nợ</div>
-            <div className="font-semibold text-rose-600">{formatCurrency(card.totalDebt)}</div>
-            <div className="text-xs text-slate-400">{Math.round(usagePercent)}%</div>
+            <div className="font-semibold text-rose-600">
+              <Amount value={card.totalDebt} id={`card-${card.id}-debt`} />
+            </div>
           </div>
 
           {/* Hạn mức khả dụng */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Khả dụng</div>
             <div className={`font-semibold ${nearLimit ? 'text-orange-600' : 'text-emerald-600'}`}>
-              {formatCurrency(availableCredit)}
+              <Amount value={availableCredit} id={`card-${card.id}-available`} />
             </div>
           </div>
 
           {/* Actions */}
           <div className="col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1">
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 setSelectedCard(selectedCard === card.id ? null : card.id);
               }}
               className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors font-medium flex items-center gap-1"
@@ -216,21 +225,30 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
               <TrendingDown size={14} /> Trả
             </button>
             <button
-              onClick={() => handleEditClick(card)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditClick(card);
+              }}
               className="p-1.5 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 rounded transition-colors"
               title="Chỉnh sửa"
             >
               <Edit size={16} />
             </button>
             <button
-              onClick={() => setShowHistory(showHistory === card.id ? null : card.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowHistory(showHistory === card.id ? null : card.id);
+              }}
               className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
               title="Lịch sử"
             >
               <History size={16} />
             </button>
             <button
-              onClick={() => onDeleteCard(card.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteCard(card.id);
+              }}
               className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded transition-colors"
               title="Xóa"
             >
@@ -250,7 +268,7 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
             {card.paymentAmount > 0 && (
               <div className="flex items-center gap-2">
                 <DollarSign size={16} className="text-slate-400" />
-                <span>Thanh toán tối thiểu: <span className="font-semibold text-slate-800">{formatCurrency(card.paymentAmount)}</span></span>
+                <span>Thanh toán tối thiểu: <span className="font-semibold text-slate-800"><Amount value={card.paymentAmount} id={`card-${card.id}-payment`} /></span></span>
               </div>
             )}
             {/* Nút trạng thái thanh toán */}
@@ -383,8 +401,8 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
       )}
 
       {/* Payment Modal */}
-      {selectedCard && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        {selectedCard && (
+         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 modal-top-0">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Thanh toán thẻ tín dụng</h2>
@@ -426,8 +444,8 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
       )}
 
       {/* Edit Card Modal */}
-      {editingCard && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        {editingCard && (
+         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in modal-top-0">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa thẻ tín dụng</h2>
@@ -488,7 +506,7 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
                 <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
                   <div className="text-sm text-indigo-800">
                     <div className="font-semibold mb-1">Thông tin tính toán:</div>
-                    <div>Hạn mức khả dụng: <span className="font-bold">{formatCurrency(Math.max(0, parseFloat(editLimit) - parseFloat(editDebt)))}</span></div>
+                    <div>Hạn mức khả dụng: <span className="font-bold"><Amount value={Math.max(0, parseFloat(editLimit) - parseFloat(editDebt))} id="card-edit-available-preview" /></span></div>
                     {parseFloat(editLimit) > 0 && (
                       <div className="mt-1">Tỷ lệ sử dụng: <span className="font-bold">{Math.round((parseFloat(editDebt) / parseFloat(editLimit)) * 100)}%</span></div>
                     )}
@@ -508,8 +526,11 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
       {showHistory && (() => {
         const card = creditCards.find(c => c.id === showHistory);
         if (!card) return null;
+        const availableCredit = getAvailableCredit(card);
+        const totalPaid = getTotalPaid(card);
+        const usagePercent = card.creditLimit > 0 ? Math.round((card.totalDebt / card.creditLimit) * 100) : 0;
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 modal-top-0">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử thanh toán - {card.name}</h2>
@@ -518,6 +539,44 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
                 </button>
               </div>
               <div className="overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Hạn mức</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      <Amount value={card.creditLimit} id={`card-${card.id}-history-limit`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Đã trả</p>
+                    <p className="text-lg font-semibold text-emerald-600">
+                      <Amount value={totalPaid} id={`card-${card.id}-history-paid`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Dư nợ</p>
+                    <p className="text-lg font-semibold text-rose-600">
+                      <Amount value={card.totalDebt} id={`card-${card.id}-history-debt`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Khả dụng</p>
+                    <p className="text-lg font-semibold text-emerald-600">
+                      <Amount value={availableCredit} id={`card-${card.id}-history-available`} />
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-4">
+                  {card.provider && (
+                    <span>Ngân hàng: <span className="font-semibold text-slate-800">{card.provider}</span></span>
+                  )}
+                  <span>Ngày đến hạn: <span className="font-semibold text-slate-800">Ngày {card.dueDate}</span></span>
+                  <span>Thanh toán tối thiểu: <span className="font-semibold text-slate-800"><Amount value={card.paymentAmount} id={`card-${card.id}-history-min`} /></span></span>
+                  {card.creditLimit > 0 && (
+                    <span>Tỷ lệ sử dụng: <span className="font-semibold text-slate-800">{usagePercent}%</span></span>
+                  )}
+                </div>
+
                 {card.payments.length === 0 ? (
                   <p className="text-center text-slate-400 py-8">Chưa có lịch sử thanh toán</p>
                 ) : (
@@ -544,7 +603,10 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right font-medium ${isBorrow ? 'text-blue-600' : 'text-emerald-600'}`}>
-                              {isBorrow ? '+' : '-'}{formatCurrency(p.amount)}
+                              <span className="inline-flex items-center gap-1">
+                                <span>{isBorrow ? '+' : '-'}</span>
+                                <Amount value={p.amount} id={`card-${card.id}-history-${p.id}`} />
+                              </span>
                             </td>
                             <td className="px-4 py-2 text-slate-500">{p.note || '-'}</td>
                           </tr>

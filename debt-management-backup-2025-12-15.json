@@ -4,7 +4,7 @@
   "loans": [
     {
       "id": "1765764278815",
-      "name": "Vay tiền mặt",
+      "name": "Tiền mặt",
       "provider": "Mẹ",
       "type": "PERSONAL",
       "originalAmount": 1170000000,
@@ -24,7 +24,7 @@
     },
     {
       "id": "1765764381497",
-      "name": "Vay tiền mặt",
+      "name": "Tiền mặt",
       "provider": "Chị 3",
       "type": "PERSONAL",
       "originalAmount": 83000000,
@@ -44,7 +44,7 @@
     },
     {
       "id": "1765764409622",
-      "name": "Vay tiền mặt",
+      "name": "Tiền mặt",
       "provider": "Chị 2",
       "type": "PERSONAL",
       "originalAmount": 60000000,
@@ -57,7 +57,7 @@
     },
     {
       "id": "1765764416714",
-      "name": "Vay tiền mặt",
+      "name": "Tiền mặt",
       "provider": "Ba",
       "type": "PERSONAL",
       "originalAmount": 10000000,
@@ -70,7 +70,7 @@
     },
     {
       "id": "1765764426816",
-      "name": "Vay tiền mặt",
+      "name": "Tiền mặt",
       "provider": "Chú Út",
       "type": "PERSONAL",
       "originalAmount": 20000000,
@@ -83,7 +83,7 @@
     },
     {
       "id": "1765764440741",
-      "name": "Vay tiền mặt",
+      "name": "Tiền mặt",
       "provider": "Vợ",
       "type": "PERSONAL",
       "originalAmount": 70000000,

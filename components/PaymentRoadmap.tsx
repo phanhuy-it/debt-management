@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
 import { Loan, LoanType, LoanStatus } from '../types';
-import { formatCurrency } from '../App';
 import { Calendar, Wallet, TrendingDown, CheckCircle2, X, Plus, Trash2 } from 'lucide-react';
 import { generateUUID } from '../utils/uuid';
+import { Amount, useAmountVisibility } from './AmountVisibility';
 
 interface PaymentRoadmapProps {
   loans: Loan[];
@@ -60,6 +60,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
     'Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
     'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'
   ];
+  const { formatAmount } = useAmountVisibility();
 
   const activeBankLoans = useMemo(
     () =>
@@ -271,7 +272,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
             <p className="text-sm text-slate-600">Tổng số tiền còn lại</p>
           </div>
           <h3 className="text-2xl font-bold text-blue-600">
-            {formatCurrency(totalAmount)}
+            <Amount value={totalAmount} id="roadmap-total-amount" />
           </h3>
         </div>
         <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl shadow-sm border border-purple-200">
@@ -552,8 +553,8 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                 <div className="flex-1">
                   <p className="text-sm font-medium text-slate-900">{simLoan.name}</p>
                   <p className="text-xs text-slate-500">
-                    {simLoan.provider} • Gốc: {formatCurrency(simLoan.originalAmount)} • 
-                    Hàng tháng: {formatCurrency(simLoan.monthlyPayment)} • 
+                    {simLoan.provider} • Gốc: <Amount value={simLoan.originalAmount} id={`sim-${simLoan.id}-original`} /> • 
+                    Hàng tháng: <Amount value={simLoan.monthlyPayment} id={`sim-${simLoan.id}-monthly`} /> • 
                     Bắt đầu: {monthNames[simLoan.startMonth]} {simLoan.startYear}
                   </p>
                 </div>
@@ -620,7 +621,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                     }}
                   />
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: number) => formatAmount(Number(value), 'roadmap-chart')}
                     contentStyle={{
                       backgroundColor: '#fff',
                       border: '1px solid #e2e8f0',
@@ -691,7 +692,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                     Tổng số tiền cần thanh toán
                   </span>
                   <span className="text-2xl font-bold text-rose-600">
-                    {formatCurrency(selectedMonth.totalAmount)}
+                    <Amount value={selectedMonth.totalAmount} id={`roadmap-month-${selectedMonth.month}-${selectedMonth.year}-total`} />
                   </span>
                 </div>
               </div>
@@ -749,25 +750,25 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                             <span>
                               Đã trả:{' '}
                               <strong className="text-emerald-600">
-                                {formatCurrency(paid)}
+                                <Amount value={paid} id={`roadmap-loan-${loan.id}-paid`} />
                               </strong>
                             </span>
                             <span>•</span>
                             <span>
                               Còn lại (trước tháng này):{' '}
                               <strong className="text-rose-600">
-                                {formatCurrency(currentRemaining)}
+                                <Amount value={currentRemaining} id={`roadmap-loan-${loan.id}-remaining`} />
                               </strong>
                             </span>
                           </div>
                         </div>
                         <div className="text-right ml-4">
                           <p className="font-bold text-orange-600 text-lg">
-                            {formatCurrency(amount)}
+                              <Amount value={amount} id={`roadmap-loan-${loan.id}-month-amount`} />
                           </p>
                           {remainingAfter > 0 && (
                             <p className="text-xs text-slate-400 mt-1">
-                              Sau tháng này: {formatCurrency(remainingAfter)}
+                              Sau tháng này: <Amount value={remainingAfter} id={`roadmap-loan-${loan.id}-after`} />
                             </p>
                           )}
                           {remainingAfter <= 0 && (

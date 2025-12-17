@@ -3,6 +3,7 @@ import { Loan, LoanType, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
 import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2 } from 'lucide-react';
+import { Amount } from './AmountVisibility';
 
 interface LoanListProps {
   loans: Loan[];
@@ -264,11 +265,15 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     const finalPaymentDate = loan.type === LoanType.BANK ? calculateFinalPaymentDate(loan) : null;
 
     return (
-      <div key={loan.id} className={`bg-white border-b transition-colors ${
-        isOverdue(loan) 
-          ? 'border-red-200 bg-red-50/30 hover:bg-red-50/50' 
-          : 'border-slate-100 hover:bg-slate-50'
-      }`}>
+      <div
+        key={loan.id}
+        onClick={() => setShowHistory(loan.id)}
+        className={`bg-white border-b transition-colors ${
+          isOverdue(loan) 
+            ? 'border-red-200 bg-red-50/30 hover:bg-red-50/50' 
+            : 'border-slate-100 hover:bg-slate-50'
+        } ${loan.type === LoanType.PERSONAL ? 'cursor-pointer' : ''}`}
+      >
         {/* Dòng 1: Thông tin chính */}
         <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
           {/* Loại + Tên */}
@@ -296,27 +301,35 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
           {/* Tổng tiền gốc */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Tổng gốc</div>
-            <div className="font-semibold text-slate-900">{formatCurrency(loan.originalAmount)}</div>
+            <div className="font-semibold text-slate-900">
+              <Amount value={loan.originalAmount} id={`loan-${loan.id}-original`} />
+            </div>
           </div>
 
           {/* Đã trả */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Đã trả</div>
-            <div className="text-emerald-600 font-semibold">{formatCurrency(paid)}</div>
-            <div className="text-xs text-slate-400">{Math.round(percent)}%</div>
+            <div className="text-emerald-600 font-semibold">
+              <Amount value={paid} id={`loan-${loan.id}-paid`} />
+            </div>
           </div>
 
           {/* Còn lại */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Còn lại</div>
-            <div className="font-semibold text-rose-600">{formatCurrency(remaining)}</div>
+            <div className="font-semibold text-rose-600">
+              <Amount value={remaining} id={`loan-${loan.id}-remaining`} />
+            </div>
           </div>
 
           {/* Actions */}
           <div className="col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1">
             {loan.type === LoanType.BANK ? (
               <button
-                onClick={() => handleQuickPay(loan.id, loan)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleQuickPay(loan.id, loan);
+                }}
                 className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors font-medium flex items-center gap-1"
                 title={`Trả ${formatCurrency(loan.monthlyPayment)}`}
               >
@@ -324,7 +337,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
               </button>
             ) : (
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setSelectedLoan(isPayOpen ? null : loan.id);
                   setLoanToBorrow(null);
                 }}
@@ -336,7 +350,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
             )}
             {loan.type === LoanType.PERSONAL && (
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setLoanToBorrow(isBorrowOpen ? null : loan.id);
                   setSelectedLoan(null);
                 }}
@@ -347,14 +362,20 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
               </button>
             )}
             <button
-              onClick={() => setShowHistory(isHistoryOpen ? null : loan.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowHistory(isHistoryOpen ? null : loan.id);
+              }}
               className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
               title="Lịch sử"
             >
               <History size={16} />
             </button>
             <button
-              onClick={() => onDeleteLoan(loan.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteLoan(loan.id);
+              }}
               className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded transition-colors"
               title="Xóa"
             >
@@ -375,7 +396,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                 </div>
                 <div className="flex items-center gap-2">
                   <DollarSign size={16} className="text-slate-400" />
-                  <span>Trả tháng: <span className="font-semibold text-slate-800">{formatCurrency(loan.monthlyPayment)}</span></span>
+                  <span>Số tiền: <span className="font-semibold text-slate-800"><Amount value={loan.monthlyPayment} id={`loan-${loan.id}-monthly`} /></span></span>
                 </div>
                 {loan.termMonths > 0 && (
                   <div className="flex items-center gap-2">
@@ -390,7 +411,10 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                 )}
                 {/* Nút trạng thái thanh toán tháng hiện tại */}
                 <button
-                  onClick={() => toggleCurrentMonthPayment(loan)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCurrentMonthPayment(loan);
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                     isCurrentMonthPaid(loan)
                       ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
@@ -570,7 +594,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       {/* Modals for Payment, Borrow, History */}
       {/* Payment Modal */}
       {selectedLoan && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Trả nợ</h2>
@@ -613,7 +637,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
       {/* Borrow Modal */}
       {loanToBorrow && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Vay thêm</h2>
@@ -648,7 +672,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
               </div>
               {borrowAmount && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-                  💡 Số tiền vay gốc sẽ tăng thêm {formatCurrency(parseFloat(borrowAmount) || 0)}
+                  💡 Số tiền gốc sẽ tăng thêm <Amount value={parseFloat(borrowAmount) || 0} id={`loan-${loanToBorrow}-borrow-preview`} />
                 </div>
               )}
               <div className="flex justify-end gap-2 pt-2">
@@ -665,7 +689,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         const loan = loans.find(l => l.id === loanToEdit);
         if (!loan) return null;
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa tên khoản vay</h2>
@@ -717,8 +741,9 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       {showHistory && (() => {
         const loan = loans.find(l => l.id === showHistory);
         if (!loan) return null;
+        const { paid, remaining } = getProgress(loan);
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử giao dịch - {loan.name}</h2>
@@ -727,6 +752,39 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                 </button>
               </div>
               <div className="overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Tổng gốc</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      <Amount value={loan.originalAmount} id={`loan-${loan.id}-history-original`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Đã trả</p>
+                    <p className="text-lg font-semibold text-emerald-600">
+                      <Amount value={paid} id={`loan-${loan.id}-history-paid`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Còn lại</p>
+                    <p className="text-lg font-semibold text-rose-600">
+                      <Amount value={remaining} id={`loan-${loan.id}-history-remaining`} />
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-4">
+                  {loan.provider && (
+                    <span>Người cho vay: <span className="font-semibold text-slate-800">{loan.provider}</span></span>
+                  )}
+                  {loan.type === LoanType.PERSONAL && (
+                    <span>Ngày vay: <span className="font-semibold text-slate-800">{formatDate(loan.startDate)}</span></span>
+                  )}
+                  {loan.type === LoanType.BANK && loan.monthlyPayment > 0 && (
+                    <span>Trả hàng tháng: <span className="font-semibold text-slate-800"><Amount value={loan.monthlyPayment} id={`loan-${loan.id}-history-monthly`} /></span></span>
+                  )}
+                </div>
+
                 {loan.payments.length === 0 ? (
                   <p className="text-center text-slate-400 py-8">Chưa có lịch sử giao dịch</p>
                 ) : (
@@ -753,7 +811,10 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right font-medium ${isBorrow ? 'text-blue-600' : 'text-emerald-600'}`}>
-                              {isBorrow ? '+' : '-'}{formatCurrency(p.amount)}
+                              <span className="inline-flex items-center gap-1">
+                                <span>{isBorrow ? '+' : '-'}</span>
+                                <Amount value={p.amount} id={`loan-${loan.id}-history-${p.id}`} />
+                              </span>
                             </td>
                             <td className="px-4 py-2 text-slate-500">{p.note || '-'}</td>
                           </tr>

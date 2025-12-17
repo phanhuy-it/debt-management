@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Payment } from '../types';
-import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
 import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X } from 'lucide-react';
+import { Amount, useAmountVisibility } from './AmountVisibility';
 
 interface DashboardProps {
   loans: Loan[];
@@ -36,6 +36,7 @@ interface UnpaidExpense {
 const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes, onAddLoanPayment, onAddCardPayment, onAddExpensePayment }) => {
   const [selectedExpense, setSelectedExpense] = useState<UnpaidExpense | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const { formatAmount } = useAmountVisibility();
   // Kiểm tra xem tháng hiện tại đã được thanh toán chưa
   const isCurrentMonthPaid = (payments: Payment[]): boolean => {
     const now = new Date();
@@ -147,6 +148,17 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   // Tính dư/thiếu
   const monthlyBalance = totalMonthlyIncome - totalMonthlyExpenses;
   
+  const todayLabel = useMemo(() => {
+    return new Date().toLocaleDateString('vi-VN', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  }, []);
+
+  const currentDay = new Date().getDate();
+
   const stats = useMemo(() => {
     let totalOriginal = 0;
     let totalPaid = 0;
@@ -270,6 +282,17 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-slate-500">Hôm nay</p>
+          <p className="text-lg font-semibold text-slate-900">{todayLabel}</p>
+        </div>
+        <div className="flex items-center gap-2 text-emerald-600">
+          <Calendar size={18} />
+          <span className="text-sm font-medium">Tổng quan</span>
+        </div>
+      </div>
+
       {/* So sánh Thu - Chi */}
       <div className="bg-gradient-to-br from-emerald-50 to-blue-50 p-6 rounded-xl shadow-sm border border-emerald-200">
         <h4 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
@@ -279,12 +302,16 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-emerald-100">
             <p className="text-sm text-slate-600 mb-1">Tổng thu nhập</p>
-            <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(totalMonthlyIncome)}</h3>
+            <h3 className="text-2xl font-bold text-emerald-600">
+              <Amount value={totalMonthlyIncome} id="dashboard-total-income" />
+            </h3>
             <p className="text-xs text-slate-500 mt-1">{incomes.length} nguồn thu nhập</p>
           </div>
           <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100">
             <p className="text-sm text-slate-600 mb-1">Tổng chi tiêu</p>
-            <h3 className="text-2xl font-bold text-red-600">{formatCurrency(totalMonthlyExpenses)}</h3>
+            <h3 className="text-2xl font-bold text-red-600">
+              <Amount value={totalMonthlyExpenses} id="dashboard-total-expenses" />
+            </h3>
             <p className="text-xs text-slate-500 mt-1">
               {loans.filter(l => l.type === LoanType.BANK && l.monthlyPayment > 0).length + 
                creditCards.filter(c => c.paymentAmount > 0).length + 
@@ -298,18 +325,18 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             <h3 className={`text-2xl font-bold ${
               monthlyBalance >= 0 ? 'text-emerald-600' : 'text-red-600'
             }`}>
-              {formatCurrency(Math.abs(monthlyBalance))}
+              <Amount value={Math.abs(monthlyBalance)} id="dashboard-balance" />
             </h3>
             <p className={`text-xs font-medium mt-1 ${
               monthlyBalance >= 0 ? 'text-emerald-700' : 'text-red-700'
             }`}>
               {monthlyBalance >= 0 ? (
                 <span className="flex items-center gap-1">
-                  <TrendingUp size={12} /> Dư {formatCurrency(monthlyBalance)}
+                  <TrendingUp size={12} /> Dư <Amount value={monthlyBalance} id="dashboard-balance" showToggle={false} />
                 </span>
               ) : (
                 <span className="flex items-center gap-1">
-                  <TrendingDown size={12} /> Thiếu {formatCurrency(Math.abs(monthlyBalance))}
+                  <TrendingDown size={12} /> Thiếu <Amount value={Math.abs(monthlyBalance)} id="dashboard-balance" showToggle={false} />
                 </span>
               )}
             </p>
@@ -343,13 +370,26 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             </h4>
             <div className="text-right">
               <p className="text-xs text-slate-500">Tổng cộng</p>
-              <p className="text-xl font-bold text-rose-600">{formatCurrency(totalUnpaid)}</p>
+              <p className="text-xl font-bold text-rose-600">
+                <Amount value={totalUnpaid} id="dashboard-unpaid-total" />
+              </p>
             </div>
           </div>
           <div className="space-y-2">
             {unpaidExpenses.map(expense => {
-              const now = new Date();
-              const isOverdue = now.getDate() > expense.dueDate;
+              const dayDiff = expense.dueDate - currentDay;
+              const isOverdue = dayDiff < 0;
+              const isDueToday = dayDiff === 0;
+              const dueDescription = isOverdue
+                ? `Quá hạn ${Math.abs(dayDiff)} ngày`
+                : isDueToday
+                ? 'Đến hạn hôm nay'
+                : `Còn ${dayDiff} ngày`;
+              const dueBadgeClass = isOverdue
+                ? 'text-red-700 bg-red-50 border-red-200'
+                : isDueToday
+                ? 'text-amber-700 bg-amber-50 border-amber-200'
+                : 'text-emerald-700 bg-emerald-50 border-emerald-200';
               const IconComponent = expense.type === 'loan' 
                 ? Wallet 
                 : expense.type === 'creditCard' 
@@ -396,9 +436,16 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                         <Calendar size={14} />
                         <span className="text-sm">Ngày {expense.dueDate}</span>
                       </div>
+                      <div className="mt-1">
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full border ${dueBadgeClass}`}>
+                          {dueDescription}
+                        </span>
+                      </div>
                     </div>
                     <div className="text-right min-w-[120px]">
-                      <p className="font-bold text-slate-900">{formatCurrency(expense.amount)}</p>
+                      <p className="font-bold text-slate-900">
+                        <Amount value={expense.amount} id={`unpaid-${expense.id}`} />
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -416,16 +463,22 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <p className="text-sm text-slate-500 mb-1">Tổng tiền vay gốc</p>
-            <h3 className="text-2xl font-bold text-slate-900">{formatCurrency(stats.bankOriginal)}</h3>
+            <p className="text-sm text-slate-500 mb-1">Tổng tiền gốc</p>
+            <h3 className="text-2xl font-bold text-slate-900">
+              <Amount value={stats.bankOriginal} id="bank-original" />
+            </h3>
           </div>
           <div>
             <p className="text-sm text-slate-500 mb-1">Đã thanh toán</p>
-            <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(stats.bankPaid)}</h3>
+            <h3 className="text-2xl font-bold text-emerald-600">
+              <Amount value={stats.bankPaid} id="bank-paid" />
+            </h3>
           </div>
           <div>
-            <p className="text-sm text-slate-500 mb-1">Dư còn lại</p>
-            <h3 className="text-2xl font-bold text-rose-600">{formatCurrency(stats.bankRemaining)}</h3>
+            <p className="text-sm text-slate-500 mb-1">Còn lại</p>
+            <h3 className="text-2xl font-bold text-rose-600">
+              <Amount value={stats.bankRemaining} id="bank-remaining" />
+            </h3>
           </div>
         </div>
       </div>
@@ -438,23 +491,29 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <p className="text-sm text-slate-500 mb-1">Tổng tiền vay gốc</p>
-            <h3 className="text-2xl font-bold text-slate-900">{formatCurrency(stats.personalOriginal)}</h3>
+            <p className="text-sm text-slate-500 mb-1">Tổng tiền gốc</p>
+            <h3 className="text-2xl font-bold text-slate-900">
+              <Amount value={stats.personalOriginal} id="personal-original" />
+            </h3>
           </div>
           <div>
             <p className="text-sm text-slate-500 mb-1">Đã thanh toán</p>
-            <h3 className="text-2xl font-bold text-emerald-600">{formatCurrency(stats.personalPaid)}</h3>
+            <h3 className="text-2xl font-bold text-emerald-600">
+              <Amount value={stats.personalPaid} id="personal-paid" />
+            </h3>
           </div>
           <div>
-            <p className="text-sm text-slate-500 mb-1">Dư còn lại</p>
-            <h3 className="text-2xl font-bold text-rose-600">{formatCurrency(stats.personalRemaining)}</h3>
+            <p className="text-sm text-slate-500 mb-1">Còn lại</p>
+            <h3 className="text-2xl font-bold text-rose-600">
+              <Amount value={stats.personalRemaining} id="personal-remaining" />
+            </h3>
           </div>
         </div>
       </div>
       
       {/* Progress Chart (Bank Only mostly) */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h4 className="text-lg font-semibold text-slate-800 mb-4">Tiến độ trả  Ngân hàng</h4>
+          <h4 className="text-lg font-semibold text-slate-800 mb-4">Tiến độ  Ngân hàng</h4>
            {barData.length > 0 ? (
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -462,7 +521,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                   <XAxis type="number" hide />
                   <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 12}} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Tooltip formatter={(value: number) => formatAmount(Number(value), 'dashboard-bank-chart')} />
                   <Legend />
                   <Bar dataKey="Đã trả" stackId="a" fill="#10B981" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="Còn lại" stackId="a" fill="#E2E8F0" radius={[0, 4, 4, 0]} />
@@ -537,7 +596,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                     {/* Số tiền */}
                     <div className="bg-slate-50 rounded-lg p-3">
                       <p className="text-xs text-slate-500 mb-1">Số tiền cần thanh toán</p>
-                      <p className="text-2xl font-bold text-rose-600">{formatCurrency(selectedExpense.amount)}</p>
+                      <p className="text-2xl font-bold text-rose-600">
+                        <Amount value={selectedExpense.amount} id={`modal-${selectedExpense.id}-amount`} />
+                      </p>
                     </div>
 
                     {/* Ngày đến hạn */}
@@ -563,28 +624,36 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                           <div className="bg-slate-50 rounded-lg p-3 space-y-2">
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Số tiền gốc</p>
-                              <p className="font-medium text-slate-900">{formatCurrency((details as Loan).originalAmount)}</p>
+                              <p className="font-medium text-slate-900">
+                                <Amount value={(details as Loan).originalAmount} id={`modal-${selectedExpense.id}-loan-original`} />
+                              </p>
                             </div>
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Đã thanh toán</p>
                               <p className="font-medium text-emerald-600">
-                                {formatCurrency((details as Loan).payments
+                                <Amount
+                                  value={(details as Loan).payments
                                   .filter(p => {
                                     const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
                                     return !isBorrow;
                                   })
-                                  .reduce((acc, p) => acc + p.amount, 0))}
+                                  .reduce((acc, p) => acc + p.amount, 0)}
+                                  id={`modal-${selectedExpense.id}-loan-paid`}
+                                />
                               </p>
                             </div>
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Còn lại</p>
                               <p className="font-medium text-rose-600">
-                                {formatCurrency(Math.max(0, (details as Loan).originalAmount - (details as Loan).payments
-                                  .filter(p => {
-                                    const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-                                    return !isBorrow;
-                                  })
-                                  .reduce((acc, p) => acc + p.amount, 0)))}
+                                <Amount
+                                  value={Math.max(0, (details as Loan).originalAmount - (details as Loan).payments
+                                    .filter(p => {
+                                      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+                                      return !isBorrow;
+                                    })
+                                    .reduce((acc, p) => acc + p.amount, 0))}
+                                  id={`modal-${selectedExpense.id}-loan-remaining`}
+                                />
                               </p>
                             </div>
                           </div>
@@ -593,11 +662,15 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                           <div className="bg-slate-50 rounded-lg p-3 space-y-2">
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Hạn mức</p>
-                              <p className="font-medium text-slate-900">{formatCurrency((details as CreditCard).creditLimit)}</p>
+                              <p className="font-medium text-slate-900">
+                                <Amount value={(details as CreditCard).creditLimit} id={`modal-${selectedExpense.id}-card-limit`} />
+                              </p>
                             </div>
                             <div>
                               <p className="text-xs text-slate-500 mb-1">Tổng dư nợ</p>
-                              <p className="font-medium text-rose-600">{formatCurrency((details as CreditCard).totalDebt)}</p>
+                              <p className="font-medium text-rose-600">
+                                <Amount value={(details as CreditCard).totalDebt} id={`modal-${selectedExpense.id}-card-debt`} />
+                              </p>
                             </div>
                           </div>
                         )}

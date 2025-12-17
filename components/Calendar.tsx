@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Loan, LoanType, CreditCard, FixedExpense } from '../types';
-import { formatCurrency } from '../App';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, DollarSign, CreditCard as CreditCardIcon, Home, X } from 'lucide-react';
+import { Amount } from './AmountVisibility';
 
 interface CalendarProps {
   loans: Loan[];
@@ -209,11 +209,15 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Tổng tiền đến hạn tháng này</p>
-          <h3 className="text-2xl font-bold text-slate-900">{formatCurrency(totalDueThisMonth)}</h3>
+          <h3 className="text-2xl font-bold text-slate-900">
+            <Amount value={totalDueThisMonth} id="calendar-total-month" />
+          </h3>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Tuần này còn lại</p>
-          <h3 className="text-2xl font-bold text-blue-600">{formatCurrency(totalDueThisWeek)}</h3>
+          <h3 className="text-2xl font-bold text-blue-600">
+            <Amount value={totalDueThisWeek} id="calendar-total-week" />
+          </h3>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Số khoản đến hạn</p>
@@ -310,7 +314,7 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
                     {dayInfo.dueAmount > 0 && dayInfo.isCurrentMonth && (
                       <div className="mt-1 space-y-1">
                         <div className="text-xs font-semibold text-orange-700">
-                          {formatCurrency(dayInfo.dueAmount)}
+                          <Amount value={dayInfo.dueAmount} id={`calendar-day-${dayInfo.date.getTime()}`} />
                         </div>
                         {(dayInfo.dueLoans.length > 0 || dayInfo.dueCards.length > 0) && (
                           <div className="space-y-0.5">
@@ -393,7 +397,7 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
 
       {/* Modal hiển thị chi tiết ngày được chọn */}
       {selectedDay && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">
@@ -412,7 +416,9 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
                   <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-orange-800">Tổng tiền đến hạn</span>
-                      <span className="text-lg font-bold text-orange-600">{formatCurrency(selectedDay.dueAmount)}</span>
+                      <span className="text-lg font-bold text-orange-600">
+                        <Amount value={selectedDay.dueAmount} id={`calendar-modal-${selectedDay.date.getTime()}`} />
+                      </span>
                     </div>
                   </div>
 
@@ -432,7 +438,9 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
                                 <p className="text-xs text-slate-500 truncate">{loan.provider}</p>
                               </div>
                               <div className="text-right ml-3">
-                                <p className="font-bold text-orange-600">{formatCurrency(loan.monthlyPayment)}</p>
+                                <p className="font-bold text-orange-600">
+                                  <Amount value={loan.monthlyPayment} id={`calendar-loan-${loan.id}-monthly`} />
+                                </p>
                               </div>
                             </div>
                           </div>
@@ -461,7 +469,9 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
                               </div>
                               <div className="text-right ml-3">
                                 {card.paymentAmount > 0 ? (
-                                  <p className="font-bold text-indigo-600">{formatCurrency(card.paymentAmount)}</p>
+                                  <p className="font-bold text-indigo-600">
+                                    <Amount value={card.paymentAmount} id={`calendar-card-${card.id}-payment`} />
+                                  </p>
                                 ) : (
                                   <p className="text-xs text-slate-400">Không có</p>
                                 )}
@@ -488,7 +498,9 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
                                 <p className="font-semibold text-slate-900 truncate">{expense.name}</p>
                               </div>
                               <div className="text-right ml-3">
-                                <p className="font-bold text-purple-600">{formatCurrency(expense.amount)}</p>
+                                <p className="font-bold text-purple-600">
+                                  <Amount value={expense.amount} id={`calendar-expense-${expense.id}-amount`} />
+                                </p>
                               </div>
                             </div>
                           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon } from 'lucide-react';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
@@ -12,6 +12,7 @@ import PaymentRoadmap from './components/PaymentRoadmap';
 import Login from './components/Login';
 import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
+import { AmountVisibilityProvider, useAmountVisibility } from './components/AmountVisibility';
 
 // Utility for formatting currency
 export const formatCurrency = (amount: number) => {
@@ -20,6 +21,7 @@ export const formatCurrency = (amount: number) => {
 
 // Initial tabs
 type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR' | 'ROADMAP';
+type Theme = 'light' | 'dark';
 
 // Helper function to get tab from pathname
 const getTabFromPath = (pathname: string): Tab => {
@@ -51,6 +53,28 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { globalHidden, toggleGlobal } = useAmountVisibility();
+  const getInitialTheme = (): Theme => {
+    if (typeof window === 'undefined') return 'light';
+    const stored = localStorage.getItem('theme');
+    if (stored === 'dark' || stored === 'light') return stored;
+    return 'light';
+  };
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    const body = document.body;
+    if (theme === 'dark') {
+      body.classList.add('theme-dark');
+    } else {
+      body.classList.remove('theme-dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   // Load data from server on mount
   useEffect(() => {
@@ -159,7 +183,7 @@ function AppContent({ handleLogout }: AppContentProps) {
     let monthlyDueDate = 0;
     
     // Determine name logic: explicit for bank, default for personal if input hidden
-    const loanName = newType === LoanType.BANK ? newName : 'Vay tiền mặt';
+    const loanName = newType === LoanType.BANK ? newName : 'Tiền mặt';
 
     if (newType === LoanType.BANK) {
       monthlyPayment = parseFloat(newMonthlyPayment) || 0;
@@ -594,6 +618,23 @@ function AppContent({ handleLogout }: AppContentProps) {
           </Link>
           
           <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 text-slate-700 hover:bg-slate-100"
+              title={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              <span className="hidden sm:inline">{theme === 'dark' ? 'Sáng' : 'Tối'}</span>
+            </button>
+            <button
+              onClick={toggleGlobal}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 ${
+                globalHidden ? 'bg-slate-900 text-white hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'
+              }`}
+              title={globalHidden ? 'Hiển thị số tiền' : 'Ẩn tất cả số tiền'}
+            >
+              {globalHidden ? <EyeOff size={16} /> : <Eye size={16} />} <span className="hidden sm:inline"></span>
+            </button>
             <button 
               onClick={handleLogout}
               className="flex items-center gap-2 px-3 py-2 text-slate-700 hover:text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors border border-slate-200"
@@ -758,7 +799,7 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Loan Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm khoản vay mới</h2>
@@ -867,7 +908,7 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Credit Card Modal */}
       {showAddCardModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm thẻ tín dụng mới</h2>
@@ -946,7 +987,7 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Fixed Expense Modal */}
       {showAddExpenseModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm chi tiêu cố định mới</h2>
@@ -992,7 +1033,7 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Income Modal */}
       {showAddIncomeModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm thu nhập mới</h2>
@@ -1038,7 +1079,7 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Import Data Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Nhập dữ liệu từ file</h2>
@@ -1129,9 +1170,11 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <AppContent handleLogout={handleLogout} />
-    </BrowserRouter>
+    <AmountVisibilityProvider>
+      <BrowserRouter>
+        <AppContent handleLogout={handleLogout} />
+      </BrowserRouter>
+    </AmountVisibilityProvider>
   );
 }
 

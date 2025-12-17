@@ -3,6 +3,7 @@ import { FixedExpense, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
 import { Trash2, History, Home, Calendar, DollarSign, X, Edit, CheckCircle2, Circle } from 'lucide-react';
+import { Amount } from './AmountVisibility';
 
 interface FixedExpenseListProps {
   fixedExpenses: FixedExpense[];
@@ -118,11 +119,15 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
     const overdue = isOverdue(expense);
 
     return (
-      <div key={expense.id} className={`bg-white border-b transition-colors ${
-        overdue
-          ? 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
-          : 'border-slate-100 hover:bg-slate-50'
-      }`}>
+      <div
+        key={expense.id}
+        onClick={() => setShowHistory(expense.id)}
+        className={`bg-white border-b transition-colors ${
+          overdue
+            ? 'border-red-200 bg-red-50/30 hover:bg-red-50/50'
+            : 'border-slate-100 hover:bg-slate-50'
+        } cursor-pointer`}
+      >
         {/* Dòng 1: Thông tin chính */}
         <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
           {/* Tên chi tiêu */}
@@ -138,7 +143,9 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
           {/* Số tiền */}
           <div className="col-span-6 md:col-span-2 text-right">
             <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Số tiền</div>
-            <div className="font-semibold text-slate-900">{formatCurrency(expense.amount)}</div>
+            <div className="font-semibold text-slate-900">
+              <Amount value={expense.amount} id={`expense-${expense.id}-amount`} />
+            </div>
           </div>
 
           {/* Ngày đến hạn */}
@@ -158,7 +165,8 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
           {/* Actions */}
           <div className="col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1">
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 if (!isPaid) {
                   // Tự động thanh toán với số tiền cố định
                   if (window.confirm(`Xác nhận thanh toán ${formatCurrency(expense.amount)} cho "${expense.name}"?`)) {
@@ -197,21 +205,30 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
               {isPaid ? 'Đã trả' : 'Trả'}
             </button>
             <button
-              onClick={() => handleEditClick(expense)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditClick(expense);
+              }}
               className="p-1.5 text-slate-600 hover:bg-purple-50 hover:text-purple-600 rounded transition-colors"
               title="Chỉnh sửa"
             >
               <Edit size={16} />
             </button>
             <button
-              onClick={() => setShowHistory(showHistory === expense.id ? null : expense.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowHistory(showHistory === expense.id ? null : expense.id);
+              }}
               className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
               title="Lịch sử"
             >
               <History size={16} />
             </button>
             <button
-              onClick={() => onDeleteExpense(expense.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteExpense(expense.id);
+              }}
               className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded transition-colors"
               title="Xóa"
             >
@@ -276,7 +293,7 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
 
       {/* Edit Expense Modal */}
       {editingExpense && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa chi tiêu cố định</h2>
@@ -324,8 +341,10 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
       {showHistory && (() => {
         const expense = fixedExpenses.find(e => e.id === showHistory);
         if (!expense) return null;
+        const totalPaid = expense.payments.reduce((sum, p) => sum + p.amount, 0);
+        const remaining = Math.max(0, expense.amount - totalPaid);
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử thanh toán - {expense.name}</h2>
@@ -334,6 +353,30 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
                 </button>
               </div>
               <div className="overflow-y-auto p-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Số tiền mỗi kỳ</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      <Amount value={expense.amount} id={`expense-${expense.id}-history-amount`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Đã trả</p>
+                    <p className="text-lg font-semibold text-emerald-600">
+                      <Amount value={totalPaid} id={`expense-${expense.id}-history-paid`} />
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 mb-1">Còn lại (kỳ này)</p>
+                    <p className="text-lg font-semibold text-rose-600">
+                      <Amount value={remaining} id={`expense-${expense.id}-history-remaining`} />
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-4">
+                  <span>Ngày đến hạn: <span className="font-semibold text-slate-800">Ngày {expense.dueDate}</span></span>
+                </div>
+
                 {expense.payments.length === 0 ? (
                   <p className="text-center text-slate-400 py-8">Chưa có lịch sử thanh toán</p>
                 ) : (
@@ -350,7 +393,7 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
                         <tr key={p.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-600">{new Date(p.date).toLocaleDateString('vi-VN')}</td>
                           <td className="px-4 py-2 text-right font-medium text-purple-600">
-                            {formatCurrency(p.amount)}
+                            <Amount value={p.amount} id={`expense-${expense.id}-history-${p.id}`} />
                           </td>
                           <td className="px-4 py-2 text-slate-500">{p.note || '-'}</td>
                         </tr>
