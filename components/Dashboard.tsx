@@ -31,6 +31,7 @@ interface UnpaidExpense {
   amount: number;
   dueDate: number;
   provider?: string;
+  isNextMonth?: boolean; // Đánh dấu là khoản thanh toán tháng kế tiếp
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes, onAddLoanPayment, onAddCardPayment, onAddExpensePayment }) => {
@@ -50,63 +51,134 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     });
   };
 
-  // Lấy danh sách chi phí chưa thanh toán trong tháng hiện tại
+  // Lấy danh sách các khoản thanh toán sắp tới (chưa thanh toán tháng này + đến hạn trong 10 ngày tới)
   const unpaidExpenses = useMemo(() => {
     const now = new Date();
     const currentDay = now.getDate();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
     const result: UnpaidExpense[] = [];
+
+    // Tính ngày cuối cùng trong 10 ngày tới
+    const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const nextMonthStartDay = currentDay + 10 > daysInCurrentMonth ? 1 : currentDay + 10;
+    const nextMonthEndDay = currentDay + 10 > daysInCurrentMonth ? (currentDay + 10 - daysInCurrentMonth) : 0;
 
     // Khoản vay ngân hàng
     loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
-      if (!isCurrentMonthPaid(loan.payments.filter(p => {
+      const isPaid = isCurrentMonthPaid(loan.payments.filter(p => {
         const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
         return !isBorrow;
-      }))) {
+      }));
+
+      if (!isPaid) {
+        // Chưa thanh toán tháng này
         result.push({
           id: loan.id,
           name: loan.name,
           type: 'loan',
           amount: loan.monthlyPayment,
           dueDate: loan.monthlyDueDate,
-          provider: loan.provider
+          provider: loan.provider,
+          isNextMonth: false
         });
+      } else {
+        // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
+        if (nextMonthEndDay > 0) {
+          // Có ngày của tháng kế tiếp trong 10 ngày tới
+          if (loan.monthlyDueDate <= nextMonthEndDay) {
+            result.push({
+              id: loan.id,
+              name: loan.name,
+              type: 'loan',
+              amount: loan.monthlyPayment,
+              dueDate: loan.monthlyDueDate,
+              provider: loan.provider,
+              isNextMonth: true
+            });
+          }
+        }
+        // Nếu không vượt qua tháng, không cần thêm các khoản đã thanh toán (vì chúng đã được xử lý ở phần chưa thanh toán)
       }
     });
 
     // Thẻ tín dụng (chỉ nếu có paymentAmount > 0)
     creditCards.filter(card => card.paymentAmount > 0).forEach(card => {
-      if (!isCurrentMonthPaid(card.payments)) {
+      const isPaid = isCurrentMonthPaid(card.payments);
+
+      if (!isPaid) {
+        // Chưa thanh toán tháng này
         result.push({
           id: card.id,
           name: card.name,
           type: 'creditCard',
           amount: card.paymentAmount,
           dueDate: card.dueDate,
-          provider: card.provider
+          provider: card.provider,
+          isNextMonth: false
         });
+      } else {
+        // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
+        if (nextMonthEndDay > 0) {
+          // Có ngày của tháng kế tiếp trong 10 ngày tới
+          if (card.dueDate <= nextMonthEndDay) {
+            result.push({
+              id: card.id,
+              name: card.name,
+              type: 'creditCard',
+              amount: card.paymentAmount,
+              dueDate: card.dueDate,
+              provider: card.provider,
+              isNextMonth: true
+            });
+          }
+        }
+        // Nếu không vượt qua tháng, không cần thêm các khoản đã thanh toán (vì chúng đã được xử lý ở phần chưa thanh toán)
       }
     });
 
     // Chi tiêu cố định
     fixedExpenses.forEach(expense => {
-      if (!isCurrentMonthPaid(expense.payments)) {
+      const isPaid = isCurrentMonthPaid(expense.payments);
+
+      if (!isPaid) {
+        // Chưa thanh toán tháng này
         result.push({
           id: expense.id,
           name: expense.name,
           type: 'expense',
           amount: expense.amount,
-          dueDate: expense.dueDate
+          dueDate: expense.dueDate,
+          isNextMonth: false
         });
+      } else {
+        // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
+        if (nextMonthEndDay > 0) {
+          // Có ngày của tháng kế tiếp trong 10 ngày tới
+          if (expense.dueDate <= nextMonthEndDay) {
+            result.push({
+              id: expense.id,
+              name: expense.name,
+              type: 'expense',
+              amount: expense.amount,
+              dueDate: expense.dueDate,
+              isNextMonth: true
+            });
+          }
+        }
+        // Nếu không vượt qua tháng, không cần thêm các khoản đã thanh toán (vì chúng đã được xử lý ở phần chưa thanh toán)
       }
     });
 
     // Sắp xếp theo ngày đến hạn
     return result.sort((a, b) => {
-      // Ưu tiên các khoản quá hạn (dueDate < currentDay)
-      const aOverdue = currentDay > a.dueDate;
-      const bOverdue = currentDay > b.dueDate;
-      if (aOverdue && !bOverdue) return -1;
-      if (!aOverdue && bOverdue) return 1;
+      // Ưu tiên các khoản quá hạn (dueDate < currentDay và không phải tháng kế tiếp)
+      if (!a.isNextMonth && !b.isNextMonth) {
+        const aOverdue = currentDay > a.dueDate;
+        const bOverdue = currentDay > b.dueDate;
+        if (aOverdue && !bOverdue) return -1;
+        if (!aOverdue && bOverdue) return 1;
+      }
       // Sau đó sắp xếp theo ngày đến hạn
       return a.dueDate - b.dueDate;
     });
@@ -360,13 +432,13 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         )}
       </div>
 
-      {/* Chi phí chưa thanh toán trong tháng hiện tại */}
+      {/* Các khoản thanh toán sắp tới */}
       {unpaidExpenses.length > 0 && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
               <AlertCircle className="text-orange-500" size={20} />
-              Chi phí chưa thanh toán tháng này
+              Các khoản thanh toán sắp tới
             </h4>
             <div className="text-right">
               <p className="text-xs text-slate-500">Tổng cộng</p>
@@ -377,10 +449,24 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           </div>
           <div className="space-y-2">
             {unpaidExpenses.map(expense => {
-              const dayDiff = expense.dueDate - currentDay;
-              const isOverdue = dayDiff < 0;
-              const isDueToday = dayDiff === 0;
-              const dueDescription = isOverdue
+              // Tính số ngày còn lại đến hạn
+              let dayDiff: number;
+              if (expense.isNextMonth) {
+                // Nếu là tháng kế tiếp, tính số ngày từ hôm nay đến ngày đến hạn của tháng sau
+                const now = new Date();
+                const nowDay = now.getDate();
+                const nowMonth = now.getMonth();
+                const nowYear = now.getFullYear();
+                const daysInCurrentMonth = new Date(nowYear, nowMonth + 1, 0).getDate();
+                dayDiff = (daysInCurrentMonth - nowDay) + expense.dueDate;
+              } else {
+                dayDiff = expense.dueDate - currentDay;
+              }
+              const isOverdue = !expense.isNextMonth && dayDiff < 0;
+              const isDueToday = !expense.isNextMonth && dayDiff === 0;
+              const dueDescription = expense.isNextMonth
+                ? `Đến hạn sau ${dayDiff} ngày`
+                : isOverdue
                 ? `Quá hạn ${Math.abs(dayDiff)} ngày`
                 : isDueToday
                 ? 'Đến hạn hôm nay'
@@ -422,6 +508,11 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                         {isOverdue && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium whitespace-nowrap">
                             Quá hạn
+                          </span>
+                        )}
+                        {expense.isNextMonth && (
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium whitespace-nowrap">
+                            Tháng kế tiếp
                           </span>
                         )}
                       </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3 } from 'lucide-react';
 import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
@@ -9,6 +9,7 @@ import CreditCardList from './components/CreditCardList';
 import FixedExpenseList from './components/FixedExpenseList';
 import IncomeList from './components/IncomeList';
 import PaymentRoadmap from './components/PaymentRoadmap';
+import Statistics from './components/Statistics';
 import Login from './components/Login';
 import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
@@ -20,7 +21,7 @@ export const formatCurrency = (amount: number) => {
 };
 
 // Initial tabs
-type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR' | 'ROADMAP';
+type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR' | 'ROADMAP' | 'STATISTICS';
 type Theme = 'light' | 'dark';
 
 // Helper function to get tab from pathname
@@ -32,6 +33,7 @@ const getTabFromPath = (pathname: string): Tab => {
   if (pathname === '/income') return 'INCOME';
   if (pathname === '/calendar') return 'CALENDAR';
   if (pathname === '/roadmap') return 'ROADMAP';
+  if (pathname === '/statistics') return 'STATISTICS';
   return 'DASHBOARD';
 };
 
@@ -700,6 +702,7 @@ function AppContent({ handleLogout }: AppContentProps) {
           <Route path="/income" element={<IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} />} />
           <Route path="/calendar" element={<CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />} />
           <Route path="/roadmap" element={<PaymentRoadmap loans={loans} />} />
+          <Route path="/statistics" element={<Statistics loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} />} />
         </Routes>
       </main>
 
@@ -748,6 +751,13 @@ function AppContent({ handleLogout }: AppContentProps) {
             <RouteIcon size={20} />
             <span className="text-[10px] font-medium">Lộ trình</span>
           </Link>
+          <Link 
+            to="/statistics"
+            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'STATISTICS' ? 'text-emerald-600' : 'text-slate-400'}`}
+          >
+            <BarChart3 size={20} />
+            <span className="text-[10px] font-medium">Thống kê</span>
+          </Link>
         </div>
       </div>
 
@@ -794,6 +804,12 @@ function AppContent({ handleLogout }: AppContentProps) {
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ROADMAP' ? 'bg-white shadow-md text-orange-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <RouteIcon size={20} /> Lộ trình
+          </Link>
+          <Link 
+            to="/statistics"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'STATISTICS' ? 'bg-white shadow-md text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <BarChart3 size={20} /> Thống kê
           </Link>
       </div>
 
