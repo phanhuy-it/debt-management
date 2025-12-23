@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3 } from 'lucide-react';
-import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income } from './types';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3, HandCoins } from 'lucide-react';
+import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income, Lending, Investment } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
 import CalendarView from './components/Calendar';
 import CreditCardList from './components/CreditCardList';
 import FixedExpenseList from './components/FixedExpenseList';
 import IncomeList from './components/IncomeList';
+import LendingList from './components/LendingList';
+import InvestmentList from './components/InvestmentList';
 import PaymentRoadmap from './components/PaymentRoadmap';
 import Statistics from './components/Statistics';
 import Login from './components/Login';
-import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, saveInvestmentsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
 import { AmountVisibilityProvider, useAmountVisibility } from './components/AmountVisibility';
 
@@ -21,16 +23,18 @@ export const formatCurrency = (amount: number) => {
 };
 
 // Initial tabs
-type Tab = 'DASHBOARD' | 'LOANS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'CALENDAR' | 'ROADMAP' | 'STATISTICS';
+type Tab = 'DASHBOARD' | 'LOANS' | 'LENDINGS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'INVESTMENTS' | 'CALENDAR' | 'ROADMAP' | 'STATISTICS';
 type Theme = 'light' | 'dark';
 
 // Helper function to get tab from pathname
 const getTabFromPath = (pathname: string): Tab => {
   if (pathname === '/' || pathname === '/dashboard') return 'DASHBOARD';
   if (pathname === '/loans') return 'LOANS';
+  if (pathname === '/lendings') return 'LENDINGS';
   if (pathname === '/credit-cards') return 'CREDIT_CARDS';
   if (pathname === '/expenses') return 'EXPENSES';
   if (pathname === '/income') return 'INCOME';
+  if (pathname === '/investments') return 'INVESTMENTS';
   if (pathname === '/calendar') return 'CALENDAR';
   if (pathname === '/roadmap') return 'ROADMAP';
   if (pathname === '/statistics') return 'STATISTICS';
@@ -48,11 +52,14 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [creditCards, setCreditCards] = useState<CreditCardType[]>([]);
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
+  const [lendings, setLendings] = useState<Lending[]>([]);
+  const [investments, setInvestments] = useState<Investment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
+  const [showAddLendingModal, setShowAddLendingModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { globalHidden, toggleGlobal } = useAmountVisibility();
@@ -83,16 +90,20 @@ function AppContent({ handleLogout }: AppContentProps) {
     const loadData = async () => {
       try {
         setIsLoading(true);
-        const [loadedLoans, loadedCards, loadedExpenses, loadedIncomes] = await Promise.all([
+        const [loadedLoans, loadedCards, loadedExpenses, loadedIncomes, loadedLendings, loadedInvestments] = await Promise.all([
           loadLoansFromServer(),
           loadCreditCardsFromServer(),
           loadFixedExpensesFromServer(),
-          loadIncomeFromServer()
+          loadIncomeFromServer(),
+          loadLendingsFromServer(),
+          loadInvestmentsFromServer()
         ]);
         setLoans(loadedLoans);
         setCreditCards(loadedCards);
         setFixedExpenses(loadedExpenses);
         setIncomes(loadedIncomes);
+        setLendings(loadedLendings);
+        setInvestments(loadedInvestments);
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu:', error);
       } finally {
@@ -135,6 +146,14 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [incomeAmount, setIncomeAmount] = useState('');
   const [incomeReceivedDate, setIncomeReceivedDate] = useState<number>(1);
 
+  // Lending form fields
+  const [lendingName, setLendingName] = useState('');
+  const [lendingAmount, setLendingAmount] = useState('');
+  const [lendingStartDate, setLendingStartDate] = useState('');
+  const [lendingMonthlyPayment, setLendingMonthlyPayment] = useState('');
+  const [lendingMonthlyDueDate, setLendingMonthlyDueDate] = useState<number>(1);
+  const [lendingTermMonths, setLendingTermMonths] = useState('');
+
   // Save data to server whenever loans or creditCards change
   useEffect(() => {
     if (!isLoading && loans.length >= 0) {
@@ -169,11 +188,34 @@ function AppContent({ handleLogout }: AppContentProps) {
   }, [incomes, isLoading]);
 
   useEffect(() => {
+    if (!isLoading && lendings.length >= 0) {
+      saveLendingsToServer(lendings).catch(error => {
+        console.error('Lỗi khi lưu dữ liệu cho vay:', error);
+      });
+    }
+  }, [lendings, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading && investments.length >= 0) {
+      saveInvestmentsToServer(investments).catch(error => {
+        console.error('Lỗi khi lưu dữ liệu đầu tư:', error);
+      });
+    }
+  }, [investments, isLoading]);
+
+  useEffect(() => {
     // Set default date to today when opening modal
     if (showAddModal && !newStartDate) {
       setNewStartDate(new Date().toISOString().split('T')[0]);
     }
   }, [showAddModal]);
+
+  useEffect(() => {
+    // Set default date to today when opening lending modal
+    if (showAddLendingModal && !lendingStartDate) {
+      setLendingStartDate(new Date().toISOString().split('T')[0]);
+    }
+  }, [showAddLendingModal]);
 
   const handleAddLoan = (e: React.FormEvent) => {
     e.preventDefault();
@@ -270,6 +312,15 @@ function AppContent({ handleLogout }: AppContentProps) {
     setIncomeName('');
     setIncomeAmount('');
     setIncomeReceivedDate(1);
+  };
+
+  const resetLendingForm = () => {
+    setLendingName('');
+    setLendingAmount('');
+    setLendingStartDate(new Date().toISOString().split('T')[0]);
+    setLendingMonthlyPayment('');
+    setLendingMonthlyDueDate(1);
+    setLendingTermMonths('');
   };
 
   const handleDeleteLoan = (id: string) => {
@@ -482,6 +533,106 @@ function AppContent({ handleLogout }: AppContentProps) {
     }));
   };
 
+  // Lending Handlers
+  const handleAddLending = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const lending: Lending = {
+      id: generateUUID(),
+      name: lendingName,
+      borrower: lendingName, // Tự động set borrower = name
+      originalAmount: parseFloat(lendingAmount) || 0,
+      startDate: lendingStartDate || new Date().toISOString(),
+      payments: [],
+      status: LoanStatus.ACTIVE,
+      monthlyPayment: lendingMonthlyPayment ? parseFloat(lendingMonthlyPayment) : undefined,
+      monthlyDueDate: lendingMonthlyPayment ? lendingMonthlyDueDate : undefined,
+      termMonths: lendingTermMonths ? parseInt(lendingTermMonths) : undefined
+    };
+
+    setLendings([...lendings, lending]);
+    setShowAddLendingModal(false);
+    resetLendingForm();
+  };
+
+  const handleDeleteLending = (id: string) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa khoản cho vay này không?')) {
+      setLendings(lendings.filter(l => l.id !== id));
+    }
+  };
+
+  const handleUpdateLending = (id: string, updatedLending: Partial<Lending>) => {
+    setLendings(lendings.map(lending => {
+      if (lending.id === id) {
+        return { ...lending, ...updatedLending };
+      }
+      return lending;
+    }));
+  };
+
+  const handleAddLendingPayment = (lendingId: string, payment: Payment) => {
+    setLendings(lendings.map(lending => {
+      if (lending.id === lendingId) {
+        return { ...lending, payments: [...lending.payments, payment] };
+      }
+      return lending;
+    }));
+  };
+
+  const handleRemoveLendingPayment = (lendingId: string, paymentIds: string[]) => {
+    setLendings(lendings.map(lending => {
+      if (lending.id === lendingId) {
+        return { 
+          ...lending, 
+          payments: lending.payments.filter(p => !paymentIds.includes(p.id))
+        };
+      }
+      return lending;
+    }));
+  };
+
+  // Investment Handlers
+  const handleAddInvestment = (investment: Investment) => {
+    setInvestments([...investments, investment]);
+  };
+
+  const handleDeleteInvestment = (id: string) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa khoản đầu tư này không?')) {
+      setInvestments(investments.filter(i => i.id !== id));
+    }
+  };
+
+  const handleUpdateInvestment = (id: string, updatedInvestment: Partial<Investment>) => {
+    setInvestments(investments.map(investment => {
+      if (investment.id === id) {
+        return { ...investment, ...updatedInvestment };
+      }
+      return investment;
+    }));
+  };
+
+  const handleAddLendingAmount = (lendingId: string, additionalAmount: number, note?: string) => {
+    setLendings(lendings.map(lending => {
+      if (lending.id === lendingId) {
+        const newOriginalAmount = lending.originalAmount + additionalAmount;
+        
+        const lendRecord: Payment = {
+          id: `lend-${generateUUID()}`,
+          date: new Date().toISOString(),
+          amount: additionalAmount,
+          note: note || `Cho vay thêm ${formatCurrency(additionalAmount)}`
+        };
+
+        return { 
+          ...lending, 
+          originalAmount: newOriginalAmount,
+          payments: [...lending.payments, lendRecord]
+        };
+      }
+      return lending;
+    }));
+  };
+
   const handleAddCardPayment = (cardId: string, payment: Payment) => {
     setCreditCards(creditCards.map(card => {
       if (card.id === cardId) {
@@ -546,21 +697,22 @@ function AppContent({ handleLogout }: AppContentProps) {
     try {
       const importedData = await importDataFromFile(file);
       
-      const totalItems = importedData.loans.length + importedData.creditCards.length + importedData.fixedExpenses.length + (importedData.incomes?.length || 0);
-      
-      if (totalItems === 0) {
-        alert('File không chứa dữ liệu nào');
-        return;
-      }
+        const totalItems = importedData.loans.length + importedData.creditCards.length + importedData.fixedExpenses.length + (importedData.incomes?.length || 0) + (importedData.lendings?.length || 0);
+        
+        if (totalItems === 0) {
+          alert('File không chứa dữ liệu nào');
+          return;
+        }
 
-      // Build confirmation message
-      const parts = [];
-      if (importedData.loans.length > 0) parts.push(`${importedData.loans.length} khoản vay`);
-      if (importedData.creditCards.length > 0) parts.push(`${importedData.creditCards.length} thẻ tín dụng`);
-      if (importedData.fixedExpenses.length > 0) parts.push(`${importedData.fixedExpenses.length} chi tiêu cố định`);
-      if (importedData.incomes && importedData.incomes.length > 0) parts.push(`${importedData.incomes.length} nguồn thu nhập`);
-      
-      const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length;
+        // Build confirmation message
+        const parts = [];
+        if (importedData.loans.length > 0) parts.push(`${importedData.loans.length} khoản vay`);
+        if (importedData.creditCards.length > 0) parts.push(`${importedData.creditCards.length} thẻ tín dụng`);
+        if (importedData.fixedExpenses.length > 0) parts.push(`${importedData.fixedExpenses.length} chi tiêu cố định`);
+        if (importedData.incomes && importedData.incomes.length > 0) parts.push(`${importedData.incomes.length} nguồn thu nhập`);
+        if (importedData.lendings && importedData.lendings.length > 0) parts.push(`${importedData.lendings.length} khoản cho vay`);
+        
+        const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length + lendings.length;
       const confirmMessage = currentTotal > 0
         ? `Bạn đang có ${currentTotal} mục dữ liệu. Import sẽ thay thế toàn bộ dữ liệu hiện tại bằng:\n${parts.join(', ')}\n\nBạn có chắc chắn?`
         : `Import ${parts.join(', ')} từ file?\n\nLưu ý: ID sẽ được tự động chuyển đổi sang UUID format.`;
@@ -580,6 +732,11 @@ function AppContent({ handleLogout }: AppContentProps) {
         if (importedData.fixedExpenses.length > 0) {
           setFixedExpenses(importedData.fixedExpenses);
           await saveFixedExpensesToServer(importedData.fixedExpenses);
+        }
+        
+        if (importedData.lendings && importedData.lendings.length > 0) {
+          setLendings(importedData.lendings);
+          await saveLendingsToServer(importedData.lendings);
         }
         
         setShowImportModal(false);
@@ -611,12 +768,12 @@ function AppContent({ handleLogout }: AppContentProps) {
       
       {/* Top Navigation / Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="w-full px-4 h-16 flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-2">
-            <div className="bg-emerald-600 text-white p-1.5 rounded-lg">
-               <span className="font-bold text-lg">Debt</span>
+            <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-2 rounded-xl shadow-lg flex items-center justify-center">
+              <Wallet size={20} className="font-bold" />
             </div>
-            <h1 className="font-bold text-xl text-slate-800 tracking-tight hidden sm:block">Quản Lý</h1>
+            <h1 className="font-bold text-xl text-slate-800 tracking-tight hidden sm:block bg-gradient-to-r from-emerald-600 to-emerald-500 bg-clip-text text-transparent">Quản Lý</h1>
           </Link>
           
           <div className="flex items-center gap-2">
@@ -644,20 +801,6 @@ function AppContent({ handleLogout }: AppContentProps) {
             >
               <LogOut size={16} /> <span className="hidden sm:inline">Đăng xuất</span>
             </button>
-            <button 
-              onClick={handleExportData}
-              className="hidden sm:flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors border border-slate-200"
-              title="Xuất dữ liệu ra file"
-            >
-              <Download size={16} /> <span>Xuất</span>
-            </button>
-            <button 
-              onClick={handleImportClick}
-              className="hidden sm:flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors border border-slate-200"
-              title="Nhập dữ liệu từ file"
-            >
-              <Upload size={16} /> <span>Nhập</span>
-            </button>
             {activeTab === 'CREDIT_CARDS' ? (
               <button 
                 onClick={() => setShowAddCardModal(true)}
@@ -679,6 +822,24 @@ function AppContent({ handleLogout }: AppContentProps) {
               >
                 <TrendingUp size={18} /> <span className="hidden sm:inline">Thêm thu nhập</span> <span className="sm:hidden">Thêm</span>
               </button>
+            ) : activeTab === 'LENDINGS' ? (
+              <button 
+                onClick={() => setShowAddLendingModal(true)}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+              >
+                <HandCoins size={18} /> <span className="hidden sm:inline">Thêm cho vay</span> <span className="sm:hidden">Thêm</span>
+              </button>
+            ) : activeTab === 'INVESTMENTS' ? (
+              <button 
+                onClick={() => {
+                  // InvestmentList sẽ tự quản lý modal
+                  const event = new CustomEvent('openInvestmentModal');
+                  window.dispatchEvent(event);
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+              >
+                <BarChart3 size={18} /> <span className="hidden sm:inline">Thêm đầu tư</span> <span className="sm:hidden">Thêm</span>
+              </button>
             ) : (
               <button 
                 onClick={() => setShowAddModal(true)}
@@ -692,17 +853,21 @@ function AppContent({ handleLogout }: AppContentProps) {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 py-6">
+      <main className="w-full px-4 py-6 md:ml-64 md:w-[calc(100%-16rem)]">
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} onAddLoanPayment={handleAddPayment} onAddCardPayment={handleAddCardPayment} onAddExpensePayment={handleAddExpensePayment} />} />
           <Route path="/loans" element={<LoanList loans={loans} onDeleteLoan={handleDeleteLoan} onAddPayment={handleAddPayment} onRemovePayment={handleRemovePayment} onAddLoanAmount={handleAddLoanAmount} onUpdateLoan={handleUpdateLoan} />} />
+          <Route path="/lendings" element={<LendingList lendings={lendings} onDeleteLending={handleDeleteLending} onAddPayment={handleAddLendingPayment} onRemovePayment={handleRemoveLendingPayment} onAddLendingAmount={handleAddLendingAmount} onUpdateLending={handleUpdateLending} />} />
           <Route path="/credit-cards" element={<CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />} />
           <Route path="/expenses" element={<FixedExpenseList fixedExpenses={fixedExpenses} onDeleteExpense={handleDeleteFixedExpense} onAddPayment={handleAddExpensePayment} onRemovePayment={handleRemoveExpensePayment} onUpdateExpense={handleUpdateFixedExpense} />} />
           <Route path="/income" element={<IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} />} />
+          <Route path="/investments" element={<InvestmentList investments={investments} onDeleteInvestment={handleDeleteInvestment} onAddInvestment={handleAddInvestment} onUpdateInvestment={handleUpdateInvestment} />} />
           <Route path="/calendar" element={<CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />} />
           <Route path="/roadmap" element={<PaymentRoadmap loans={loans} />} />
-          <Route path="/statistics" element={<Statistics loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} />} />
+          <Route path="/statistics" element={<Statistics loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investments} />} />
+          {/* Catch-all route - redirect unknown paths to dashboard */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
 
@@ -721,7 +886,14 @@ function AppContent({ handleLogout }: AppContentProps) {
             className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'LOANS' ? 'text-emerald-600' : 'text-slate-400'}`}
           >
             <List size={20} />
-            <span className="text-[10px] font-medium">Danh sách</span>
+            <span className="text-[10px] font-medium">Vay</span>
+          </Link>
+          <Link 
+            to="/lendings"
+            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'LENDINGS' ? 'text-amber-600' : 'text-slate-400'}`}
+          >
+            <HandCoins size={20} />
+            <span className="text-[10px] font-medium">Cho vay</span>
           </Link>
           <Link 
             to="/credit-cards"
@@ -762,7 +934,7 @@ function AppContent({ handleLogout }: AppContentProps) {
       </div>
 
       {/* Desktop Sidebar / Tabs */}
-      <div className="hidden md:flex fixed top-20 left-[max(0px,calc(50%-42rem))] flex-col gap-2 p-4">
+      <div className="hidden md:flex fixed top-20 left-4 flex-col gap-2 p-4">
          <Link 
             to="/dashboard"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'DASHBOARD' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
@@ -773,7 +945,13 @@ function AppContent({ handleLogout }: AppContentProps) {
             to="/loans"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'LOANS' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
-            <List size={20} /> Danh sách
+            <List size={20} /> Khoản vay
+          </Link>
+          <Link 
+            to="/lendings"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'LENDINGS' ? 'bg-white shadow-md text-amber-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <HandCoins size={20} /> Cho vay
           </Link>
           <Link 
             to="/credit-cards"
@@ -792,6 +970,12 @@ function AppContent({ handleLogout }: AppContentProps) {
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'INCOME' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
           >
             <TrendingUp size={20} /> Thu nhập
+          </Link>
+          <Link 
+            to="/investments"
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'INVESTMENTS' ? 'bg-white shadow-md text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
+          >
+            <BarChart3 size={20} /> Đầu tư
           </Link>
           <Link 
             to="/calendar"
@@ -1041,6 +1225,78 @@ function AppContent({ handleLogout }: AppContentProps) {
 
               <button type="submit" className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition-transform active:scale-95 shadow-lg shadow-purple-200">
                 Lưu chi tiêu cố định
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Lending Modal */}
+      {showAddLendingModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h2 className="font-bold text-lg text-slate-800">Thêm khoản cho vay mới</h2>
+              <button onClick={() => setShowAddLendingModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleAddLending} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Tên người vay
+                </label>
+                <input required type="text" placeholder="VD: Anh Ba, Chị Tư" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={lendingName} onChange={e => setLendingName(e.target.value)} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Số tiền cho vay (VNĐ)
+                </label>
+                <input required type="number" min="0" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={lendingAmount} onChange={e => setLendingAmount(e.target.value)} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Ngày cho vay</label>
+                <input required type="date" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={lendingStartDate} onChange={e => setLendingStartDate(e.target.value)} />
+              </div>
+
+              <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                <p className="text-xs text-amber-800 mb-2">Tùy chọn: Cho vay có kỳ hạn</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Số tiền nhận hàng tháng (VNĐ) - Tùy chọn
+                    </label>
+                    <input type="number" min="0" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={lendingMonthlyPayment} onChange={e => setLendingMonthlyPayment(e.target.value)} />
+                  </div>
+                  {lendingMonthlyPayment && parseFloat(lendingMonthlyPayment) > 0 && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Ngày nhận tiền hàng tháng</label>
+                        <select 
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                          value={lendingMonthlyDueDate}
+                          onChange={e => setLendingMonthlyDueDate(parseInt(e.target.value))}
+                        >
+                          {Array.from({length: 31}, (_, i) => i + 1).map(d => (
+                            <option key={d} value={d}>Ngày {d}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                          Tổng số tháng - Tùy chọn
+                        </label>
+                        <input type="number" min="1" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={lendingTermMonths} onChange={e => setLendingTermMonths(e.target.value)} />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-amber-600 text-white py-3 rounded-xl font-bold hover:bg-amber-700 transition-transform active:scale-95 shadow-lg shadow-amber-200">
+                Lưu khoản cho vay
               </button>
             </form>
           </div>

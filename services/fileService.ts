@@ -1,5 +1,5 @@
-import { Loan, CreditCard, FixedExpense, Income, Payment } from '../types';
-import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow } from './supabase';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment } from '../types';
+import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, lendingRowToLending, investmentRowToInvestment, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow, lendingToLendingRow, investmentToInvestmentRow } from './supabase';
 import { generateUUID, isValidUUID } from '../utils/uuid';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -385,17 +385,19 @@ export const exportDataToFile = async (): Promise<void> => {
     // Ưu tiên lấy từ Supabase
     if (USE_SUPABASE) {
       try {
-        const [loansResult, cardsResult, expensesResult, incomesResult] = await Promise.all([
+        const [loansResult, cardsResult, expensesResult, incomesResult, lendingsResult] = await Promise.all([
           supabase.from('loans').select('*'),
           supabase.from('credit_cards').select('*'),
           supabase.from('fixed_expenses').select('*'),
-          supabase.from('income').select('*')
+          supabase.from('income').select('*'),
+          supabase.from('lendings').select('*')
         ]);
 
         if (loansResult.data) loans = loansResult.data.map(loanRowToLoan);
         if (cardsResult.data) creditCards = cardsResult.data.map(creditCardRowToCreditCard);
         if (expensesResult.data) fixedExpenses = expensesResult.data.map(fixedExpenseRowToFixedExpense);
         if (incomesResult.data) incomes = incomesResult.data.map(incomeRowToIncome);
+        if (lendingsResult.data) lendings = lendingsResult.data.map(lendingRowToLending);
       } catch (error) {
         console.warn('Lỗi khi lấy từ Supabase, thử fallback:', error);
       }
@@ -444,13 +446,25 @@ export const exportDataToFile = async (): Promise<void> => {
       if (saved) incomes = JSON.parse(saved);
     }
 
+    let lendings: Lending[] = [];
+    const savedLendings = localStorage.getItem('debt_lendings');
+    if (savedLendings) {
+      try {
+        lendings = JSON.parse(savedLendings);
+      } catch (e) {
+        console.warn('Lỗi khi đọc lendings từ localStorage:', e);
+      }
+    }
+
     const exportData = {
       version: '1.0',
       exportDate: new Date().toISOString(),
       loans: Array.isArray(loans) ? loans : [],
       creditCards: Array.isArray(creditCards) ? creditCards : [],
       fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],
-      incomes: Array.isArray(incomes) ? incomes : []
+      incomes: Array.isArray(incomes) ? incomes : [],
+      lendings: Array.isArray(lendings) ? lendings : [],
+      investments: []
     };
 
     const jsonString = JSON.stringify(exportData, null, 2);
@@ -535,6 +549,7 @@ export interface ImportedData {
   creditCards: CreditCard[];
   fixedExpenses: FixedExpense[];
   incomes: Income[];
+  lendings: Lending[];
 }
 
 export const importDataFromFile = (file: File): Promise<ImportedData> => {
@@ -569,6 +584,7 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
         let creditCards: CreditCard[] = [];
         let fixedExpenses: FixedExpense[] = [];
         let incomes: Income[] = [];
+        let lendings: Lending[] = [];
         
         try {
           // Check for new format with all data types
@@ -600,6 +616,17 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
             incomes = migrateIncomeIds(incomes);
           }
           
+          if (data.lendings && Array.isArray(data.lendings)) {
+            lendings = data.lendings as Lending[];
+            console.log(`Tìm thấy ${lendings.length} khoản cho vay`);
+            // Migrate IDs from timestamp to UUID
+            lendings = lendings.map(lending => ({
+              ...lending,
+              id: isValidUUID(lending.id) ? lending.id : generateUUID(),
+              payments: migratePaymentIds(lending.payments || [])
+            }));
+          }
+          
           // Handle old format (direct array of loans)
           if (Array.isArray(data) && loans.length === 0) {
             loans = data as Loan[];
@@ -612,7 +639,7 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
         }
         
         // Validate data
-        if (loans.length === 0 && creditCards.length === 0 && fixedExpenses.length === 0 && incomes.length === 0) {
+        if (loans.length === 0 && creditCards.length === 0 && fixedExpenses.length === 0 && incomes.length === 0 && lendings.length === 0) {
           throw new Error('File không chứa dữ liệu hợp lệ. Vui lòng kiểm tra định dạng file.');
         }
         
@@ -717,7 +744,8 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
           loans,
           creditCards,
           fixedExpenses,
-          incomes
+          incomes,
+          lendings
         });
       } catch (error) {
         console.error('Lỗi chi tiết khi import:', error);
@@ -1048,6 +1076,275 @@ export const saveIncomeToServer = async (incomes: Income[]): Promise<void> => {
   // Fallback to localStorage
   try {
     localStorage.setItem('debt_income', JSON.stringify(incomes));
+    console.warn('Đã lưu vào localStorage (Supabase không khả dụng)');
+  } catch (localError) {
+    console.error('Lỗi khi lưu vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
+ * Load lendings data from Supabase (primary) or localStorage (fallback)
+ */
+export const loadLendingsFromServer = async (): Promise<Lending[]> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      const { data, error } = await supabase
+        .from('lendings')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const lendings = data.map(lendingRowToLending);
+        
+        try {
+          localStorage.setItem('debt_lendings', JSON.stringify(lendings));
+        } catch (e) {
+          console.warn('Không thể lưu vào localStorage:', e);
+        }
+        
+        // Migrate từ localStorage nếu database trống
+        if (lendings.length === 0) {
+          const localSaved = localStorage.getItem('debt_lendings');
+          if (localSaved) {
+            try {
+              const localLendings = JSON.parse(localSaved);
+              if (Array.isArray(localLendings) && localLendings.length > 0) {
+                await saveLendingsToServer(localLendings);
+                return localLendings;
+              }
+            } catch (e) {
+              console.error('Lỗi khi migrate từ localStorage:', e);
+            }
+          }
+        }
+        
+        return lendings;
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải từ Supabase:', error);
+    }
+  }
+
+  // Fallback to localStorage
+  const saved = localStorage.getItem('debt_lendings');
+  if (saved) {
+    try {
+      const lendings = JSON.parse(saved);
+      if (Array.isArray(lendings)) {
+        return lendings;
+      }
+    } catch (error) {
+      console.error('Lỗi khi đọc từ localStorage:', error);
+    }
+  }
+
+  return [];
+};
+
+/**
+ * Save lendings data to Supabase (primary) or localStorage (fallback)
+ */
+export const saveLendingsToServer = async (lendings: Lending[]): Promise<void> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      const rows = lendings.map(lending => lendingToLendingRow(lending));
+      
+      // Use upsert to update existing and insert new records
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('lendings')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) throw upsertError;
+      }
+
+      // Delete records that are not in the current array
+      if (lendings.length > 0) {
+        const currentIds = lendings.map(l => l.id);
+        const { data: allLendings } = await supabase
+          .from('lendings')
+          .select('id');
+        
+        if (allLendings) {
+          const idsToDelete = allLendings
+            .map(l => l.id)
+            .filter(id => !currentIds.includes(id));
+          
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('lendings')
+              .delete()
+              .in('id', idsToDelete);
+            
+            if (deleteError) console.warn('Lỗi khi xóa records cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('lendings')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        
+        if (deleteError) console.warn('Lỗi khi xóa tất cả:', deleteError);
+      }
+
+      console.log('✅ Đã lưu vào Supabase database');
+      
+      try {
+        localStorage.setItem('debt_lendings', JSON.stringify(lendings));
+      } catch (e) {
+        console.warn('Không thể lưu vào localStorage:', e);
+      }
+      
+      return;
+    } catch (error) {
+      console.error('❌ Lỗi khi lưu vào Supabase:', error);
+      throw error;
+    }
+  }
+
+  // Fallback to localStorage
+  try {
+    localStorage.setItem('debt_lendings', JSON.stringify(lendings));
+    console.warn('Đã lưu vào localStorage (Supabase không khả dụng)');
+  } catch (localError) {
+    console.error('Lỗi khi lưu vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
+ * Load investments data from Supabase (primary) or localStorage (fallback)
+ */
+export const loadInvestmentsFromServer = async (): Promise<Investment[]> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      const { data, error } = await supabase
+        .from('investments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const investments = data.map(investmentRowToInvestment);
+        
+        try {
+          localStorage.setItem('debt_investments', JSON.stringify(investments));
+        } catch (e) {
+          console.warn('Không thể lưu vào localStorage:', e);
+        }
+        
+        // Migrate từ localStorage nếu database trống
+        if (investments.length === 0) {
+          const localSaved = localStorage.getItem('debt_investments');
+          if (localSaved) {
+            try {
+              const localInvestments = JSON.parse(localSaved);
+              if (Array.isArray(localInvestments) && localInvestments.length > 0) {
+                await saveInvestmentsToServer(localInvestments);
+                return localInvestments;
+              }
+            } catch (e) {
+              console.error('Lỗi khi migrate từ localStorage:', e);
+            }
+          }
+        }
+        
+        return investments;
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải từ Supabase:', error);
+    }
+  }
+
+  // Fallback to localStorage
+  const saved = localStorage.getItem('debt_investments');
+  if (saved) {
+    try {
+      const investments = JSON.parse(saved);
+      if (Array.isArray(investments)) {
+        return investments;
+      }
+    } catch (error) {
+      console.error('Lỗi khi đọc từ localStorage:', error);
+    }
+  }
+
+  return [];
+};
+
+/**
+ * Save investments data to Supabase (primary) or localStorage (fallback)
+ */
+export const saveInvestmentsToServer = async (investments: Investment[]): Promise<void> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      const rows = investments.map(investment => investmentToInvestmentRow(investment));
+      
+      // Use upsert to update existing and insert new records
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('investments')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) throw upsertError;
+      }
+
+      // Delete records that are not in the current array
+      if (investments.length > 0) {
+        const currentIds = investments.map(i => i.id);
+        const { data: allInvestments } = await supabase
+          .from('investments')
+          .select('id');
+        
+        if (allInvestments) {
+          const idsToDelete = allInvestments
+            .map(i => i.id)
+            .filter(id => !currentIds.includes(id));
+          
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('investments')
+              .delete()
+              .in('id', idsToDelete);
+            
+            if (deleteError) console.warn('Lỗi khi xóa records cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('investments')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+        
+        if (deleteError) console.warn('Lỗi khi xóa tất cả records:', deleteError);
+      }
+
+      // Backup to localStorage
+      try {
+        localStorage.setItem('debt_investments', JSON.stringify(investments));
+      } catch (e) {
+        console.warn('Không thể lưu vào localStorage:', e);
+      }
+      
+      return;
+    } catch (error) {
+      console.error('❌ Lỗi khi lưu vào Supabase:', error);
+      throw error;
+    }
+  }
+
+  // Fallback to localStorage
+  try {
+    localStorage.setItem('debt_investments', JSON.stringify(investments));
     console.warn('Đã lưu vào localStorage (Supabase không khả dụng)');
   } catch (localError) {
     console.error('Lỗi khi lưu vào localStorage:', localError);

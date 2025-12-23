@@ -63,12 +63,46 @@ CREATE TABLE IF NOT EXISTS income (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Lendings Table (Cho vay)
+CREATE TABLE IF NOT EXISTS lendings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  borrower TEXT NOT NULL,
+  original_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+  start_date DATE NOT NULL,
+  monthly_due_date INTEGER CHECK (monthly_due_date >= 1 AND monthly_due_date <= 31),
+  monthly_payment DECIMAL(15, 2),
+  term_months INTEGER,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED')),
+  notes TEXT,
+  payments JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Investments Table (Đầu tư)
+CREATE TABLE IF NOT EXISTS investments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('DEPOSIT', 'WITHDRAW')),
+  amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+  date DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED')),
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);
 CREATE INDEX IF NOT EXISTS idx_loans_type ON loans(type);
 CREATE INDEX IF NOT EXISTS idx_credit_cards_status ON credit_cards(status);
 CREATE INDEX IF NOT EXISTS idx_fixed_expenses_status ON fixed_expenses(status);
 CREATE INDEX IF NOT EXISTS idx_income_status ON income(status);
+CREATE INDEX IF NOT EXISTS idx_lendings_status ON lendings(status);
+CREATE INDEX IF NOT EXISTS idx_investments_status ON investments(status);
+CREATE INDEX IF NOT EXISTS idx_investments_type ON investments(type);
+CREATE INDEX IF NOT EXISTS idx_investments_date ON investments(date);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -92,6 +126,12 @@ CREATE TRIGGER update_fixed_expenses_updated_at BEFORE UPDATE ON fixed_expenses
 CREATE TRIGGER update_income_updated_at BEFORE UPDATE ON income
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_lendings_updated_at BEFORE UPDATE ON lendings
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_investments_updated_at BEFORE UPDATE ON investments
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Disable Row Level Security (RLS) for public access
 -- Nếu muốn bật RLS, comment các dòng ALTER TABLE ... DISABLE ROW LEVEL SECURITY;
 -- và uncomment các CREATE POLICY ở dưới
@@ -100,11 +140,16 @@ ALTER TABLE loans DISABLE ROW LEVEL SECURITY;
 ALTER TABLE credit_cards DISABLE ROW LEVEL SECURITY;
 ALTER TABLE fixed_expenses DISABLE ROW LEVEL SECURITY;
 ALTER TABLE income DISABLE ROW LEVEL SECURITY;
+ALTER TABLE lendings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE investments DISABLE ROW LEVEL SECURITY;
 
 -- Alternative: Nếu muốn bật RLS, uncomment các policy sau:
 -- ALTER TABLE loans ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE credit_cards ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE fixed_expenses ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE income ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE lendings ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE investments ENABLE ROW LEVEL SECURITY;
 -- 
 -- CREATE POLICY "Allow all operations on loans" ON loans 
 --   FOR ALL USING (true) WITH CHECK (true);
@@ -116,5 +161,11 @@ ALTER TABLE income DISABLE ROW LEVEL SECURITY;
 --   FOR ALL USING (true) WITH CHECK (true);
 -- 
 -- CREATE POLICY "Allow all operations on income" ON income 
+--   FOR ALL USING (true) WITH CHECK (true);
+-- 
+-- CREATE POLICY "Allow all operations on lendings" ON lendings 
+--   FOR ALL USING (true) WITH CHECK (true);
+-- 
+-- CREATE POLICY "Allow all operations on investments" ON investments 
 --   FOR ALL USING (true) WITH CHECK (true);
 

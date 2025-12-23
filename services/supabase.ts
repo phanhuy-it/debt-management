@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Loan, CreditCard, FixedExpense, Income, Payment } from '../types';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -67,6 +67,34 @@ export interface IncomeRow {
   updated_at: string;
 }
 
+export interface LendingRow {
+  id: string;
+  name: string;
+  borrower: string;
+  original_amount: number;
+  start_date: string;
+  monthly_due_date: number | null;
+  monthly_payment: number | null;
+  term_months: number | null;
+  status: string;
+  notes: string | null;
+  payments: Payment[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentRow {
+  id: string;
+  name: string;
+  type: string;
+  amount: number;
+  date: string;
+  status: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Convert database row to app type
 export const loanRowToLoan = (row: LoanRow): Loan => ({
   id: row.id,
@@ -116,6 +144,30 @@ export const incomeRowToIncome = (row: IncomeRow): Income => ({
   payments: Array.isArray(row.payments) ? row.payments : []
 });
 
+export const lendingRowToLending = (row: LendingRow): Lending => ({
+  id: row.id,
+  name: row.name,
+  borrower: row.borrower,
+  originalAmount: Number(row.original_amount),
+  startDate: row.start_date,
+  monthlyDueDate: row.monthly_due_date || undefined,
+  monthlyPayment: row.monthly_payment ? Number(row.monthly_payment) : undefined,
+  termMonths: row.term_months || undefined,
+  status: row.status as 'ACTIVE' | 'COMPLETED',
+  notes: row.notes || undefined,
+  payments: Array.isArray(row.payments) ? row.payments : []
+});
+
+export const investmentRowToInvestment = (row: InvestmentRow): Investment => ({
+  id: row.id,
+  name: row.name,
+  type: row.type as 'DEPOSIT' | 'WITHDRAW',
+  amount: Number(row.amount),
+  date: row.date,
+  status: row.status as 'ACTIVE' | 'COMPLETED',
+  note: row.note || undefined
+});
+
 // Convert app type to database row
 export const loanToLoanRow = (loan: Loan): Partial<LoanRow> => ({
   id: loan.id,
@@ -163,5 +215,29 @@ export const incomeToIncomeRow = (income: Income): Partial<IncomeRow> => ({
   status: income.status,
   notes: income.notes || null,
   payments: income.payments || []
+});
+
+export const lendingToLendingRow = (lending: Lending): Partial<LendingRow> => ({
+  id: lending.id,
+  name: lending.name,
+  borrower: lending.borrower,
+  original_amount: lending.originalAmount,
+  start_date: lending.startDate,
+  monthly_due_date: lending.monthlyDueDate || null,
+  monthly_payment: lending.monthlyPayment || null,
+  term_months: lending.termMonths || null,
+  status: lending.status,
+  notes: lending.notes || null,
+  payments: lending.payments || []
+});
+
+export const investmentToInvestmentRow = (investment: Investment): Partial<InvestmentRow> => ({
+  id: investment.id,
+  name: investment.name,
+  type: investment.type,
+  amount: investment.amount,
+  date: investment.date,
+  status: investment.status,
+  note: investment.note || null
 });
 

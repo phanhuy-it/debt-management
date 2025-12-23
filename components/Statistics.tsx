@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Loan, LoanType, CreditCard, FixedExpense, Income, Payment } from '../types';
+import { Loan, LoanType, LoanStatus, CreditCard, FixedExpense, Income, Investment, InvestmentType, Payment } from '../types';
 import { Calendar, TrendingUp, TrendingDown, DollarSign, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 
@@ -9,9 +9,41 @@ interface StatisticsProps {
   creditCards: CreditCard[];
   fixedExpenses: FixedExpense[];
   incomes: Income[];
+  investments: Investment[];
 }
 
-const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpenses, incomes }) => {
+// Helper function để kiểm tra payment có thuộc tháng được chọn không
+const isPaymentInMonth = (paymentDate: string, targetYear: number, targetMonth: number): boolean => {
+  const date = new Date(paymentDate);
+  // Normalize về local time để tránh vấn đề timezone
+  const localYear = date.getFullYear();
+  const localMonth = date.getMonth();
+  return localYear === targetYear && localMonth === targetMonth;
+};
+
+// Helper function để kiểm tra khoản vay có đang active trong tháng được chọn không
+const isLoanActiveInMonth = (loan: Loan, targetYear: number, targetMonth: number): boolean => {
+  // Chỉ tính các khoản vay đang active
+  if (loan.status !== LoanStatus.ACTIVE) return false;
+  
+  // Kiểm tra xem tháng được chọn có nằm trong kỳ hạn vay không
+  const startDate = new Date(loan.startDate);
+  const targetDate = new Date(targetYear, targetMonth, 1);
+  
+  // Tính số tháng từ startDate đến targetDate
+  const monthsDiff = (targetDate.getFullYear() - startDate.getFullYear()) * 12 + 
+                     (targetDate.getMonth() - startDate.getMonth());
+  
+  // Khoản vay active nếu tháng được chọn >= tháng bắt đầu và < tháng bắt đầu + số tháng kỳ hạn
+  return monthsDiff >= 0 && monthsDiff < loan.termMonths;
+};
+
+// Helper function để format số tiền cho biểu đồ (chia cho 1 triệu)
+const formatChartAmount = (value: number): string => {
+  return (value / 1000000).toFixed(1) + 'M';
+};
+
+const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpenses, incomes, investments }) => {
   const { formatAmount } = useAmountVisibility();
   const [selectedMonth, setSelectedMonth] = useState<Date>(() => {
     const now = new Date();
@@ -36,49 +68,69 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
     const year = selectedMonth.getFullYear();
     const month = selectedMonth.getMonth();
     
-    // Thu nhập trong tháng
+    // Thu nhập trong tháng (bao gồm rút tiền đầu tư)
     const incomePayments = incomes.flatMap(income => 
-      income.payments.filter(p => {
-        const paymentDate = new Date(p.date);
-        return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
-      })
+      income.payments.filter(p => isPaymentInMonth(p.date, year, month))
     );
-    const totalIncome = incomePayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalIncomeFromIncomes = incomePayments.reduce((sum, p) => sum + p.amount, 0);
+    
+    // Đầu tư: Rút tiền = thu nhập, Nạp tiền = chi tiêu
+    const depositInvestments = investments.filter(inv => 
+      inv.type === InvestmentType.DEPOSIT && 
+      inv.status === LoanStatus.ACTIVE &&
+      isPaymentInMonth(inv.date, year, month)
+    );
+    const totalDepositInvestments = depositInvestments.reduce((sum, inv) => sum + inv.amount, 0);
+    
+    const withdrawInvestments = investments.filter(inv => 
+      inv.type === InvestmentType.WITHDRAW && 
+      inv.status === LoanStatus.ACTIVE &&
+      isPaymentInMonth(inv.date, year, month)
+    );
+    const totalWithdrawInvestments = withdrawInvestments.reduce((sum, inv) => sum + inv.amount, 0);
+    
+    // Tổng thu nhập (bao gồm rút tiền đầu tư)
+    const totalIncome = totalIncomeFromIncomes + totalWithdrawInvestments;
 
-    // Chi tiêu từ khoản vay ngân hàng
-    const loanPayments = loans
-      .filter(loan => loan.type === LoanType.BANK)
-      .flatMap(loan => 
-        loan.payments.filter(p => {
-          const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-          if (isBorrow) return false;
-          const paymentDate = new Date(p.date);
-          return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
-        })
-      );
-    const totalLoanPayments = loanPayments.reduce((sum, p) => sum + p.amount, 0);
+    // Chi tiêu từ khoản vay ngân hàng - tính theo monthlyPayment (số tiền trả góp hàng tháng)
+    // Tính tất cả các khoản vay đang active trong tháng, dù đã trả hay chưa
+    let totalLoanPayments = 0;
+    const loanPayments: Payment[] = [];
+    loans
+      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0)
+      .forEach(loan => {
+        // Kiểm tra xem khoản vay có đang active trong tháng này không
+        if (isLoanActiveInMonth(loan, year, month)) {
+          // Tính monthlyPayment cho tất cả các khoản vay active trong tháng
+          totalLoanPayments += loan.monthlyPayment;
+          // Lưu thông tin để hiển thị chi tiết (tạo payment giả để hiển thị)
+          loanPayments.push({
+            id: `loan-${loan.id}-${year}-${month}`,
+            date: new Date(year, month, loan.monthlyDueDate).toISOString(),
+            amount: loan.monthlyPayment,
+            note: `Trả góp hàng tháng - ${loan.name}`
+          });
+        }
+      });
 
     // Chi tiêu từ thẻ tín dụng
     const cardPayments = creditCards.flatMap(card =>
       card.payments.filter(p => {
-        if (p.id.startsWith('borrow-')) return false;
-        const paymentDate = new Date(p.date);
-        return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        if (isBorrow) return false;
+        return isPaymentInMonth(p.date, year, month);
       })
     );
     const totalCardPayments = cardPayments.reduce((sum, p) => sum + p.amount, 0);
 
     // Chi tiêu cố định
     const expensePayments = fixedExpenses.flatMap(expense =>
-      expense.payments.filter(p => {
-        const paymentDate = new Date(p.date);
-        return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
-      })
+      expense.payments.filter(p => isPaymentInMonth(p.date, year, month))
     );
     const totalExpensePayments = expensePayments.reduce((sum, p) => sum + p.amount, 0);
 
-    // Tổng chi tiêu
-    const totalExpenses = totalLoanPayments + totalCardPayments + totalExpensePayments;
+    // Tổng chi tiêu (bao gồm nạp tiền đầu tư)
+    const totalExpenses = totalLoanPayments + totalCardPayments + totalExpensePayments + totalDepositInvestments;
 
     // Số dư
     const balance = totalIncome - totalExpenses;
@@ -87,7 +139,8 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
     const expensesByType = [
       { name: 'Khoản vay', value: totalLoanPayments, color: '#3B82F6' },
       { name: 'Thẻ tín dụng', value: totalCardPayments, color: '#8B5CF6' },
-      { name: 'Chi tiêu cố định', value: totalExpensePayments, color: '#F59E0B' }
+      { name: 'Chi tiêu cố định', value: totalExpensePayments, color: '#F59E0B' },
+      { name: 'Đầu tư (Nạp tiền)', value: totalDepositInvestments, color: '#10B981' }
     ].filter(item => item.value > 0);
 
     return {
@@ -98,12 +151,16 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
       totalLoanPayments,
       totalCardPayments,
       totalExpensePayments,
+      totalDepositInvestments,
+      totalWithdrawInvestments,
+      depositInvestments,
+      withdrawInvestments,
       incomePayments,
       loanPayments,
       cardPayments,
       expensePayments
     };
-  }, [loans, creditCards, fixedExpenses, incomes, selectedMonth]);
+  }, [loans, creditCards, fixedExpenses, incomes, investments, selectedMonth]);
 
   // Tính toán thống kê 6 tháng gần nhất
   const last6MonthsStats = useMemo(() => {
@@ -120,43 +177,56 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
       const year = date.getFullYear();
       const month = date.getMonth();
 
-      // Thu nhập
+      // Thu nhập (bao gồm rút tiền đầu tư)
       const incomePayments = incomes.flatMap(income =>
-        income.payments.filter(p => {
-          const paymentDate = new Date(p.date);
-          return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
-        })
+        income.payments.filter(p => isPaymentInMonth(p.date, year, month))
       );
-      const income = incomePayments.reduce((sum, p) => sum + p.amount, 0);
+      const incomeFromIncomes = incomePayments.reduce((sum, p) => sum + p.amount, 0);
+      
+      // Đầu tư: Rút tiền = thu nhập
+      const withdrawInvestments = investments.filter(inv => 
+        inv.type === InvestmentType.WITHDRAW && 
+        inv.status === LoanStatus.ACTIVE &&
+        isPaymentInMonth(inv.date, year, month)
+      );
+      const incomeFromWithdraw = withdrawInvestments.reduce((sum, inv) => sum + inv.amount, 0);
+      const income = incomeFromIncomes + incomeFromWithdraw;
 
       // Chi tiêu
-      const loanPayments = loans
-        .filter(loan => loan.type === LoanType.BANK)
-        .flatMap(loan =>
-          loan.payments.filter(p => {
-            const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-            if (isBorrow) return false;
-            const paymentDate = new Date(p.date);
-            return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
-          })
-        );
+      // Khoản vay ngân hàng - tính theo monthlyPayment cho tất cả khoản vay active trong tháng
+      let loanExpenses = 0;
+      loans
+        .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0)
+        .forEach(loan => {
+          // Tính monthlyPayment cho tất cả các khoản vay active trong tháng
+          if (isLoanActiveInMonth(loan, year, month)) {
+            loanExpenses += loan.monthlyPayment;
+          }
+        });
+      
       const cardPayments = creditCards.flatMap(card =>
         card.payments.filter(p => {
-          if (p.id.startsWith('borrow-')) return false;
-          const paymentDate = new Date(p.date);
-          return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
+          const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+          if (isBorrow) return false;
+          return isPaymentInMonth(p.date, year, month);
         })
       );
       const expensePayments = fixedExpenses.flatMap(expense =>
-        expense.payments.filter(p => {
-          const paymentDate = new Date(p.date);
-          return paymentDate.getFullYear() === year && paymentDate.getMonth() === month;
-        })
+        expense.payments.filter(p => isPaymentInMonth(p.date, year, month))
       );
+      
+      // Đầu tư: Nạp tiền = chi tiêu
+      const depositInvestments = investments.filter(inv => 
+        inv.type === InvestmentType.DEPOSIT && 
+        inv.status === LoanStatus.ACTIVE &&
+        isPaymentInMonth(inv.date, year, month)
+      );
+      const expensesFromDeposit = depositInvestments.reduce((sum, inv) => sum + inv.amount, 0);
 
-      const expenses = loanPayments.reduce((sum, p) => sum + p.amount, 0) +
+      const expenses = loanExpenses +
         cardPayments.reduce((sum, p) => sum + p.amount, 0) +
-        expensePayments.reduce((sum, p) => sum + p.amount, 0);
+        expensePayments.reduce((sum, p) => sum + p.amount, 0) +
+        expensesFromDeposit;
 
       stats.push({
         month: date.toLocaleDateString('vi-VN', { month: 'short', year: 'numeric' }),
@@ -167,7 +237,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
     }
 
     return stats;
-  }, [loans, creditCards, fixedExpenses, incomes, selectedMonth]);
+  }, [loans, creditCards, fixedExpenses, incomes, investments, selectedMonth]);
 
   const monthLabel = selectedMonth.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
 
@@ -213,7 +283,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
             <Amount value={monthlyStats.totalIncome} id="stats-total-income" />
           </p>
           <p className="text-sm text-slate-600 mt-2">
-            {monthlyStats.incomePayments.length} giao dịch
+            {monthlyStats.incomePayments.length + monthlyStats.withdrawInvestments.length} giao dịch
           </p>
         </div>
 
@@ -226,7 +296,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
             <Amount value={monthlyStats.totalExpenses} id="stats-total-expenses" />
           </p>
           <p className="text-sm text-slate-600 mt-2">
-            {monthlyStats.loanPayments.length + monthlyStats.cardPayments.length + monthlyStats.expensePayments.length} giao dịch
+            {monthlyStats.loanPayments.length + monthlyStats.cardPayments.length + monthlyStats.expensePayments.length + monthlyStats.depositInvestments.length} giao dịch
           </p>
         </div>
 
@@ -270,7 +340,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatAmount(value, 'stats-pie-chart')} />
+                  <Tooltip formatter={(value: number) => formatChartAmount(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -301,8 +371,8 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
           <LineChart data={last6MonthsStats}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="month" />
-            <YAxis />
-            <Tooltip formatter={(value: number) => formatAmount(value, 'stats-line-chart')} />
+            <YAxis tickFormatter={(value) => formatChartAmount(value)} />
+            <Tooltip formatter={(value: number) => formatChartAmount(value)} />
             <Legend />
             <Line type="monotone" dataKey="income" stroke="#10B981" strokeWidth={2} name="Thu nhập" />
             <Line type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} name="Chi tiêu" />
@@ -319,16 +389,14 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
             <TrendingUp className="text-emerald-600" size={20} />
             Chi tiết thu nhập
           </h3>
-          {monthlyStats.incomePayments.length === 0 ? (
+          {monthlyStats.incomePayments.length === 0 && monthlyStats.totalWithdrawInvestments === 0 ? (
             <p className="text-slate-500 text-center py-4">Không có giao dịch thu nhập trong tháng này</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-4">
               {incomes.map(income => {
-                const payments = income.payments.filter(p => {
-                  const paymentDate = new Date(p.date);
-                  return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
-                    paymentDate.getMonth() === selectedMonth.getMonth();
-                });
+                const payments = income.payments.filter(p => 
+                  isPaymentInMonth(p.date, selectedMonth.getFullYear(), selectedMonth.getMonth())
+                );
                 if (payments.length === 0) return null;
                 const total = payments.reduce((sum, p) => sum + p.amount, 0);
                 return (
@@ -340,6 +408,21 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                   </div>
                 );
               })}
+              {monthlyStats.totalWithdrawInvestments > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-600 mb-2">Đầu tư (Rút tiền)</h4>
+                  <div className="space-y-2">
+                    {monthlyStats.withdrawInvestments.map(investment => (
+                      <div key={investment.id} className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg">
+                        <span className="text-sm font-medium text-slate-800">{investment.name}</span>
+                        <span className="text-sm font-bold text-emerald-600">
+                          <Amount value={investment.amount} id={`stats-withdraw-${investment.id}`} />
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -356,22 +439,18 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                 <h4 className="text-sm font-semibold text-slate-600 mb-2">Khoản vay</h4>
                 <div className="space-y-2">
                   {loans
-                    .filter(loan => loan.type === LoanType.BANK)
+                    .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0)
                     .map(loan => {
-                      const payments = loan.payments.filter(p => {
-                        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-                        if (isBorrow) return false;
-                        const paymentDate = new Date(p.date);
-                        return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
-                          paymentDate.getMonth() === selectedMonth.getMonth();
-                      });
-                      if (payments.length === 0) return null;
-                      const total = payments.reduce((sum, p) => sum + p.amount, 0);
+                      // Kiểm tra xem khoản vay có đang active trong tháng này không
+                      if (!isLoanActiveInMonth(loan, selectedMonth.getFullYear(), selectedMonth.getMonth())) {
+                        return null;
+                      }
+                      // Hiển thị monthlyPayment (số tiền trả góp hàng tháng) cho tất cả khoản vay active
                       return (
                         <div key={loan.id} className="flex items-center justify-between p-2 bg-blue-50 rounded-lg">
                           <span className="text-sm font-medium text-slate-800">{loan.name}</span>
                           <span className="text-sm font-bold text-blue-600">
-                            <Amount value={total} id={`stats-loan-${loan.id}`} />
+                            <Amount value={loan.monthlyPayment} id={`stats-loan-${loan.id}`} />
                           </span>
                         </div>
                       );
@@ -386,10 +465,9 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                 <div className="space-y-2">
                   {creditCards.map(card => {
                     const payments = card.payments.filter(p => {
-                      if (p.id.startsWith('borrow-')) return false;
-                      const paymentDate = new Date(p.date);
-                      return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
-                        paymentDate.getMonth() === selectedMonth.getMonth();
+                      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+                      if (isBorrow) return false;
+                      return isPaymentInMonth(p.date, selectedMonth.getFullYear(), selectedMonth.getMonth());
                     });
                     if (payments.length === 0) return null;
                     const total = payments.reduce((sum, p) => sum + p.amount, 0);
@@ -411,11 +489,9 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                 <h4 className="text-sm font-semibold text-slate-600 mb-2">Chi tiêu cố định</h4>
                 <div className="space-y-2">
                   {fixedExpenses.map(expense => {
-                    const payments = expense.payments.filter(p => {
-                      const paymentDate = new Date(p.date);
-                      return paymentDate.getFullYear() === selectedMonth.getFullYear() &&
-                        paymentDate.getMonth() === selectedMonth.getMonth();
-                    });
+                    const payments = expense.payments.filter(p => 
+                      isPaymentInMonth(p.date, selectedMonth.getFullYear(), selectedMonth.getMonth())
+                    );
                     if (payments.length === 0) return null;
                     const total = payments.reduce((sum, p) => sum + p.amount, 0);
                     return (
@@ -427,6 +503,22 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {monthlyStats.totalDepositInvestments > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-slate-600 mb-2">Đầu tư (Nạp tiền)</h4>
+                <div className="space-y-2">
+                  {monthlyStats.depositInvestments.map(investment => (
+                    <div key={investment.id} className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg">
+                      <span className="text-sm font-medium text-slate-800">{investment.name}</span>
+                      <span className="text-sm font-bold text-emerald-600">
+                        <Amount value={investment.amount} id={`stats-deposit-${investment.id}`} />
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

@@ -170,17 +170,32 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       }
     });
 
-    // Sắp xếp theo ngày đến hạn
+    // Sắp xếp theo ngày đến hạn gần nhất
     return result.sort((a, b) => {
-      // Ưu tiên các khoản quá hạn (dueDate < currentDay và không phải tháng kế tiếp)
-      if (!a.isNextMonth && !b.isNextMonth) {
-        const aOverdue = currentDay > a.dueDate;
-        const bOverdue = currentDay > b.dueDate;
-        if (aOverdue && !bOverdue) return -1;
-        if (!aOverdue && bOverdue) return 1;
-      }
-      // Sau đó sắp xếp theo ngày đến hạn
-      return a.dueDate - b.dueDate;
+      // Tính ngày đến hạn thực tế cho mỗi khoản
+      const getActualDueDate = (expense: UnpaidExpense): number => {
+        if (expense.isNextMonth) {
+          // Nếu là tháng kế tiếp, tính số ngày từ hôm nay đến ngày đến hạn của tháng sau
+          const now = new Date();
+          const nowDay = now.getDate();
+          const nowMonth = now.getMonth();
+          const nowYear = now.getFullYear();
+          const daysInCurrentMonth = new Date(nowYear, nowMonth + 1, 0).getDate();
+          // Trả về số ngày tính từ hôm nay (số lớn hơn = xa hơn)
+          return (daysInCurrentMonth - nowDay) + expense.dueDate;
+        } else {
+          // Nếu là tháng hiện tại, tính số ngày còn lại
+          const dayDiff = expense.dueDate - currentDay;
+          // Nếu quá hạn, đặt số âm để ưu tiên (số càng âm = quá hạn càng lâu)
+          return dayDiff < 0 ? dayDiff - 1000 : dayDiff;
+        }
+      };
+
+      const aDueDate = getActualDueDate(a);
+      const bDueDate = getActualDueDate(b);
+      
+      // Sắp xếp: quá hạn trước (số âm), sau đó đến các khoản sắp đến hạn (số dương nhỏ nhất)
+      return aDueDate - bDueDate;
     });
   }, [loans, creditCards, fixedExpenses]);
 

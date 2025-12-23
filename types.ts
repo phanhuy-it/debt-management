@@ -65,6 +65,35 @@ export interface Income {
   notes?: string;
 }
 
+export interface Lending {
+  id: string;
+  name: string; // Tên người vay (VD: Anh Ba, Chị Tư)
+  borrower: string; // Tên người vay (tương tự provider trong Loan)
+  originalAmount: number; // Tổng số tiền cho vay
+  startDate: string; // Ngày cho vay
+  payments: Payment[]; // Lịch sử nhận tiền trả lại
+  status: LoanStatus; // ACTIVE hoặc COMPLETED
+  notes?: string; // Ghi chú
+  monthlyDueDate?: number; // Ngày nhận tiền hàng tháng (nếu có, 1-31)
+  monthlyPayment?: number; // Số tiền nhận hàng tháng (nếu có)
+  termMonths?: number; // Kỳ hạn (tháng) - nếu có
+}
+
+export enum InvestmentType {
+  DEPOSIT = 'DEPOSIT', // Nạp tiền
+  WITHDRAW = 'WITHDRAW' // Rút tiền
+}
+
+export interface Investment {
+  id: string;
+  name: string; // Tên khoản đầu tư (VD: Chứng khoán, Bất động sản, Quỹ đầu tư)
+  type: InvestmentType; // DEPOSIT hoặc WITHDRAW
+  amount: number; // Số tiền nạp/rút
+  date: string; // Ngày nạp/rút
+  note?: string; // Ghi chú
+  status: LoanStatus; // ACTIVE hoặc COMPLETED
+}
+
 export interface DashboardStats {
   totalOriginal: number;
   totalPaid: number;

@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Loan, LoanType, Payment } from '../types';
+import { Loan, LoanType, LoanStatus, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
-import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2 } from 'lucide-react';
+import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2, Archive, CheckCheck } from 'lucide-react';
 import { Amount } from './AmountVisibility';
 
 interface LoanListProps {
@@ -16,6 +16,7 @@ interface LoanListProps {
 
 type SortOption = 'dueDate' | 'amount';
 type LoanTab = 'BANK' | 'PERSONAL';
+type StatusFilter = 'ACTIVE' | 'COMPLETED' | 'ALL';
 
 const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, onRemovePayment, onAddLoanAmount, onUpdateLoan }) => {
   const [selectedLoan, setSelectedLoan] = useState<string | null>(null);
@@ -24,6 +25,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>('dueDate');
   const [activeTab, setActiveTab] = useState<LoanTab>('BANK');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
   const [loanToBorrow, setLoanToBorrow] = useState<string | null>(null);
   const [borrowAmount, setBorrowAmount] = useState('');
   const [borrowNote, setBorrowNote] = useState('');
@@ -92,6 +94,18 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     onUpdateLoan(loanToEdit, { name: editLoanName.trim() });
     setLoanToEdit(null);
     setEditLoanName('');
+  };
+
+  const handleMarkAsCompleted = (loanId: string) => {
+    if (window.confirm('Bạn có chắc chắn muốn đánh dấu khoản vay này đã hoàn thành? Khoản vay sẽ được chuyển vào lịch sử.')) {
+      onUpdateLoan(loanId, { status: LoanStatus.COMPLETED });
+    }
+  };
+
+  const handleRestoreLoan = (loanId: string) => {
+    if (window.confirm('Bạn có muốn khôi phục khoản vay này về danh sách đang hoạt động không?')) {
+      onUpdateLoan(loanId, { status: LoanStatus.ACTIVE });
+    }
   };
 
   const getProgress = (loan: Loan) => {
@@ -220,9 +234,19 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   };
 
   // Phân loại và Sắp xếp
-  const { bankLoans, personalLoans } = useMemo(() => {
-    const bank = loans.filter(l => l.type === LoanType.BANK);
-    const personal = loans.filter(l => l.type === LoanType.PERSONAL);
+  const { bankLoans, personalLoans, completedLoans } = useMemo(() => {
+    // Lọc theo status
+    let filteredLoans = loans;
+    if (statusFilter === 'ACTIVE') {
+      filteredLoans = loans.filter(l => l.status === LoanStatus.ACTIVE);
+    } else if (statusFilter === 'COMPLETED') {
+      filteredLoans = loans.filter(l => l.status === LoanStatus.COMPLETED);
+    }
+    // statusFilter === 'ALL' thì không lọc
+
+    const bank = filteredLoans.filter(l => l.type === LoanType.BANK);
+    const personal = filteredLoans.filter(l => l.type === LoanType.PERSONAL);
+    const completed = filteredLoans.filter(l => l.status === LoanStatus.COMPLETED);
 
     const sortFn = (a: Loan, b: Loan) => {
       if (sortBy === 'amount') {
@@ -242,12 +266,19 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
     return {
       bankLoans: bank.sort(sortFn),
-      personalLoans: personal.sort(sortFn)
+      personalLoans: personal.sort(sortFn),
+      completedLoans: completed.sort((a, b) => {
+        // Sắp xếp completed loans theo ngày hoàn thành (mới nhất trước)
+        const aLastPayment = a.payments.length > 0 ? new Date(a.payments[a.payments.length - 1].date).getTime() : 0;
+        const bLastPayment = b.payments.length > 0 ? new Date(b.payments[b.payments.length - 1].date).getTime() : 0;
+        return bLastPayment - aLastPayment;
+      })
     };
-  }, [loans, sortBy]);
+  }, [loans, sortBy, statusFilter]);
 
   // Set tab mặc định dựa trên loại khoản vay có sẵn
   useEffect(() => {
+    if (statusFilter === 'COMPLETED') return; // Không tự động chuyển tab khi xem lịch sử
     if (bankLoans.length > 0 && activeTab === 'BANK') return;
     if (personalLoans.length > 0 && activeTab === 'PERSONAL') return;
     if (bankLoans.length > 0) {
@@ -255,7 +286,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     } else if (personalLoans.length > 0) {
       setActiveTab('PERSONAL');
     }
-  }, [bankLoans.length, personalLoans.length, activeTab]);
+  }, [bankLoans.length, personalLoans.length, activeTab, statusFilter]);
 
   const renderLoanRow = (loan: Loan) => {
     const { paid, remaining, percent } = getProgress(loan);
@@ -286,7 +317,10 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                 <div className="font-semibold text-slate-900 truncate">{loan.name}</div>
                 {loan.type === LoanType.BANK && (
                   <button
-                    onClick={() => handleEditLoanName(loan)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditLoanName(loan);
+                    }}
                     className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
                     title="Chỉnh sửa tên khoản vay"
                   >
@@ -371,6 +405,37 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
             >
               <History size={16} />
             </button>
+            {loan.status === LoanStatus.ACTIVE && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const { remaining } = getProgress(loan);
+                  if (remaining > 0) {
+                    if (window.confirm(`Khoản vay này còn nợ ${formatCurrency(remaining)}. Bạn vẫn muốn đánh dấu là đã hoàn thành?`)) {
+                      handleMarkAsCompleted(loan.id);
+                    }
+                  } else {
+                    handleMarkAsCompleted(loan.id);
+                  }
+                }}
+                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                title="Đánh dấu đã hoàn thành"
+              >
+                <CheckCheck size={16} />
+              </button>
+            )}
+            {loan.status === LoanStatus.COMPLETED && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRestoreLoan(loan.id);
+                }}
+                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                title="Khôi phục"
+              >
+                <Archive size={16} />
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -473,24 +538,117 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         <h2 className="text-xl font-bold text-slate-800">Danh sách khoản vay</h2>
         
         {/* Sort Controls */}
-        <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-           <button 
-              onClick={() => setSortBy('dueDate')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'dueDate' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-           >
-              <ArrowUp01 size={14} /> Ngày đến hạn
-           </button>
-           <button 
-              onClick={() => setSortBy('amount')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'amount' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-           >
-              <ArrowDownWideNarrow size={14} /> Số tiền lớn nhất
-           </button>
-        </div>
+        {statusFilter !== 'COMPLETED' && (
+          <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+             <button 
+                onClick={() => setSortBy('dueDate')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'dueDate' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+             >
+                <ArrowUp01 size={14} /> Ngày đến hạn
+             </button>
+             <button 
+                onClick={() => setSortBy('amount')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'amount' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+             >
+                <ArrowDownWideNarrow size={14} /> Số tiền lớn nhất
+             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Status Filter */}
+      <div className="flex gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+        <button
+          onClick={() => setStatusFilter('ACTIVE')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+            statusFilter === 'ACTIVE'
+              ? 'bg-emerald-50 text-emerald-700 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <CheckCircle2 size={18} />
+          <span>Đang hoạt động</span>
+          {loans.filter(l => l.status === LoanStatus.ACTIVE).length > 0 && (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              statusFilter === 'ACTIVE'
+                ? 'bg-emerald-200 text-emerald-800'
+                : 'bg-slate-200 text-slate-600'
+            }`}>
+              {loans.filter(l => l.status === LoanStatus.ACTIVE).length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setStatusFilter('COMPLETED')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+            statusFilter === 'COMPLETED'
+              ? 'bg-slate-100 text-slate-800 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <Archive size={18} />
+          <span>Lịch sử</span>
+          {loans.filter(l => l.status === LoanStatus.COMPLETED).length > 0 && (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              statusFilter === 'COMPLETED'
+                ? 'bg-slate-200 text-slate-800'
+                : 'bg-slate-200 text-slate-600'
+            }`}>
+              {loans.filter(l => l.status === LoanStatus.COMPLETED).length}
+            </span>
+          )}
+        </button>
       </div>
       
-      {/* Tab Navigation */}
-      <div className="flex gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+      {/* Tab Navigation - Only show for active loans */}
+      {statusFilter !== 'COMPLETED' && (
+        <>
+      {/* Tổng dư nợ còn lại theo loại */}
+      {(bankLoans.length > 0 || personalLoans.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {bankLoans.length > 0 && (() => {
+            const totalBankRemaining = bankLoans.reduce((sum, loan) => {
+              const { remaining } = getProgress(loan);
+              return sum + remaining;
+            }, 0);
+            return (
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Banknote size={20} className="text-blue-600" />
+                    <span className="text-sm font-medium text-slate-600">Tổng dư nợ còn lại - Ngân hàng</span>
+                  </div>
+                  <span className="text-xl font-bold text-red-600">
+                    <Amount value={totalBankRemaining} id="total-bank-remaining" />
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+          
+          {personalLoans.length > 0 && (() => {
+            const totalPersonalRemaining = personalLoans.reduce((sum, loan) => {
+              const { remaining } = getProgress(loan);
+              return sum + remaining;
+            }, 0);
+            return (
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <User size={20} className="text-purple-600" />
+                    <span className="text-sm font-medium text-slate-600">Tổng dư nợ còn lại - Người thân</span>
+                  </div>
+                  <span className="text-xl font-bold text-red-600">
+                    <Amount value={totalPersonalRemaining} id="total-personal-remaining" />
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+      
+        <div className="flex gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
         <button
           onClick={() => setActiveTab('BANK')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
@@ -532,15 +690,111 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
           )}
         </button>
       </div>
+      </>
+      )}
 
-      {loans.length === 0 && (
+      {/* Completed Loans Section */}
+      {statusFilter === 'COMPLETED' && (
+        <>
+          {completedLoans.length === 0 ? (
+            <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
+              <p className="text-slate-500">Bạn chưa có khoản vay nào đã hoàn thành.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              {/* Header */}
+              <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
+                <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay đã hoàn thành</div>
+                <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
+                <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
+                <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Loại</div>
+                <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+              </div>
+              {/* Body */}
+              <div className="divide-y divide-slate-100">
+                {completedLoans.map(loan => {
+                  const { paid } = getProgress(loan);
+                  return (
+                    <div
+                      key={loan.id}
+                      onClick={() => setShowHistory(loan.id)}
+                      className="bg-white border-b border-slate-100 hover:bg-slate-50 cursor-pointer opacity-75"
+                    >
+                      <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
+                        <div className="col-span-12 md:col-span-4 flex items-center gap-3">
+                          <div className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                            {loan.type === LoanType.BANK ? <Banknote size={18} /> : <User size={18} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-slate-900 truncate">{loan.name}</div>
+                            <div className="text-sm text-slate-500 truncate">{loan.provider}</div>
+                          </div>
+                        </div>
+                        <div className="col-span-6 md:col-span-2 text-right">
+                          <div className="font-semibold text-slate-900">
+                            <Amount value={loan.originalAmount} id={`completed-loan-${loan.id}-original`} />
+                          </div>
+                        </div>
+                        <div className="col-span-6 md:col-span-2 text-right">
+                          <div className="text-emerald-600 font-semibold">
+                            <Amount value={paid} id={`completed-loan-${loan.id}-paid`} />
+                          </div>
+                        </div>
+                        <div className="col-span-6 md:col-span-2 text-right">
+                          <span className={`text-xs px-2 py-1 rounded ${loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {loan.type === LoanType.BANK ? 'Ngân hàng' : 'Người thân'}
+                          </span>
+                        </div>
+                        <div className="col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowHistory(showHistory === loan.id ? null : loan.id);
+                            }}
+                            className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                            title="Lịch sử"
+                          >
+                            <History size={16} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRestoreLoan(loan.id);
+                            }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="Khôi phục"
+                          >
+                            <Archive size={16} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteLoan(loan.id);
+                            }}
+                            className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded transition-colors"
+                            title="Xóa"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {statusFilter !== 'COMPLETED' && loans.length === 0 && (
         <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
           <p className="text-slate-500">Bạn chưa có khoản vay nào.</p>
         </div>
       )}
 
       {/* BANK SECTION */}
-      {activeTab === 'BANK' && bankLoans.length > 0 && (
+      {statusFilter !== 'COMPLETED' && activeTab === 'BANK' && bankLoans.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Header */}
           <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
@@ -558,7 +812,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       )}
 
       {/* PERSONAL SECTION */}
-      {activeTab === 'PERSONAL' && personalLoans.length > 0 && (
+      {statusFilter !== 'COMPLETED' && activeTab === 'PERSONAL' && personalLoans.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           {/* Header */}
           <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
@@ -576,7 +830,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       )}
 
       {/* Empty state for current tab */}
-      {loans.length > 0 && (
+      {statusFilter !== 'COMPLETED' && loans.length > 0 && (
         <>
           {activeTab === 'BANK' && bankLoans.length === 0 && (
             <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
