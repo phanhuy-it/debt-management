@@ -856,7 +856,7 @@ function AppContent({ handleLogout }: AppContentProps) {
       <main className="w-full px-4 py-6 md:ml-64 md:w-[calc(100%-16rem)]">
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} onAddLoanPayment={handleAddPayment} onAddCardPayment={handleAddCardPayment} onAddExpensePayment={handleAddExpensePayment} />} />
+          <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investments} onAddLoanPayment={handleAddPayment} onAddCardPayment={handleAddCardPayment} onAddExpensePayment={handleAddExpensePayment} />} />
           <Route path="/loans" element={<LoanList loans={loans} onDeleteLoan={handleDeleteLoan} onAddPayment={handleAddPayment} onRemovePayment={handleRemovePayment} onAddLoanAmount={handleAddLoanAmount} onUpdateLoan={handleUpdateLoan} />} />
           <Route path="/lendings" element={<LendingList lendings={lendings} onDeleteLending={handleDeleteLending} onAddPayment={handleAddLendingPayment} onRemovePayment={handleRemoveLendingPayment} onAddLendingAmount={handleAddLendingAmount} onUpdateLending={handleUpdateLending} />} />
           <Route path="/credit-cards" element={<CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />} />

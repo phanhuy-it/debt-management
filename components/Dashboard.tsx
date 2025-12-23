@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
-import { Loan, LoanType, CreditCard, FixedExpense, Income, Payment } from '../types';
+import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, InvestmentType, LoanStatus, Payment } from '../types';
 import { generateUUID } from '../utils/uuid';
 import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
@@ -10,6 +10,7 @@ interface DashboardProps {
   creditCards: CreditCard[];
   fixedExpenses: FixedExpense[];
   incomes: Income[];
+  investments: Investment[];
   onAddLoanPayment: (loanId: string, payment: Payment) => void;
   onAddCardPayment: (cardId: string, payment: Payment) => void;
   onAddExpensePayment: (expenseId: string, payment: Payment) => void;
@@ -34,7 +35,7 @@ interface UnpaidExpense {
   isNextMonth?: boolean; // Đánh dấu là khoản thanh toán tháng kế tiếp
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes, onAddLoanPayment, onAddCardPayment, onAddExpensePayment }) => {
+const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes, investments, onAddLoanPayment, onAddCardPayment, onAddExpensePayment }) => {
   const [selectedExpense, setSelectedExpense] = useState<UnpaidExpense | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const { formatAmount } = useAmountVisibility();
@@ -203,12 +204,17 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     return unpaidExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   }, [unpaidExpenses]);
 
-  // Tính tổng thu nhập hàng tháng
+  // Tính tổng thu nhập hàng tháng (bao gồm rút tiền đầu tư)
   const totalMonthlyIncome = useMemo(() => {
-    return incomes.reduce((sum, income) => sum + income.amount, 0);
-  }, [incomes]);
+    const incomeFromIncomes = incomes.reduce((sum, income) => sum + income.amount, 0);
+    // Đầu tư: Rút tiền = thu nhập
+    const incomeFromWithdraw = investments
+      .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
+      .reduce((sum, inv) => sum + inv.amount, 0);
+    return incomeFromIncomes + incomeFromWithdraw;
+  }, [incomes, investments]);
 
-  // Tính tổng chi tiêu hàng tháng (loans + credit cards + fixed expenses)
+  // Tính tổng chi tiêu hàng tháng (loans + credit cards + fixed expenses + nạp tiền đầu tư)
   const totalMonthlyExpenses = useMemo(() => {
     let total = 0;
     
@@ -229,8 +235,14 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       total += expense.amount;
     });
     
+    // Đầu tư: Nạp tiền = chi tiêu
+    const expensesFromDeposit = investments
+      .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
+      .reduce((sum, inv) => sum + inv.amount, 0);
+    total += expensesFromDeposit;
+    
     return total;
-  }, [loans, creditCards, fixedExpenses]);
+  }, [loans, creditCards, fixedExpenses, investments]);
 
   // Tính dư/thiếu
   const monthlyBalance = totalMonthlyIncome - totalMonthlyExpenses;
