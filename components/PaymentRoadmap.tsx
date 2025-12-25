@@ -45,6 +45,18 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
   // input type="month", giá trị dạng "YYYY-MM"
   const [newSettlementMonthYear, setNewSettlementMonthYear] = useState<string>('');
   
+  // Handle ESC key to close modal
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedMonth) {
+        setSelectedMonth(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedMonth]);
+  
   // State cho khoản vay mô phỏng
   const [simulatedLoans, setSimulatedLoans] = useState<SimulatedLoan[]>([]);
   const [newSimulatedLoan, setNewSimulatedLoan] = useState({
@@ -669,8 +681,12 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
           style={{ marginTop: 0 }}
+          onClick={() => setSelectedMonth(null)}
         >
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6">
               {/* Header */}
               <div className="flex items-center justify-between mb-6">

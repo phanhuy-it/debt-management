@@ -236,6 +236,21 @@ const IncomeList: React.FC<IncomeListProps> = ({
     return sorted.sort(sortFn);
   }, [incomes, sortBy]);
 
+  // Handle ESC key to close modals
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedIncome) setSelectedIncome(null);
+        if (editingIncome) setEditingIncome(null);
+        if (showHistory) setShowHistory(null);
+        if (extraIncomeId) setExtraIncomeId('');
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedIncome, editingIncome, showHistory, extraIncomeId]);
+
   const renderIncomeRow = (income: Income) => {
     const isReceived = isCurrentMonthReceived(income);
     const datePassed = isReceivedDatePassed(income);
@@ -603,8 +618,14 @@ const IncomeList: React.FC<IncomeListProps> = ({
 
       {/* Payment Modal */}
       {selectedIncome && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+          onClick={() => setSelectedIncome(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Nhận tiền thu nhập</h2>
               <button onClick={() => setSelectedIncome(null)} className="text-slate-400 hover:text-slate-600">
@@ -646,8 +667,14 @@ const IncomeList: React.FC<IncomeListProps> = ({
 
       {/* Edit Income Modal */}
       {editingIncome && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setEditingIncome(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa thu nhập</h2>
               <button onClick={() => setEditingIncome(null)} className="text-slate-400 hover:text-slate-600">
@@ -695,8 +722,14 @@ const IncomeList: React.FC<IncomeListProps> = ({
         const income = incomes.find(i => i.id === showHistory);
         if (!income) return null;
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
+          <div 
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+            onClick={() => setShowHistory(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử nhận tiền - {income.name}</h2>
                 <button onClick={() => setShowHistory(null)} className="text-slate-400 hover:text-slate-600">

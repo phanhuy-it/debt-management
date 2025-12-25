@@ -84,6 +84,28 @@ export enum InvestmentType {
   WITHDRAW = 'WITHDRAW' // Rút tiền
 }
 
+// Khoản đầu tư (Account/Portfolio)
+export interface InvestmentAccount {
+  id: string;
+  name: string; // Tên khoản đầu tư (VD: Chứng khoán, Bất động sản, Quỹ đầu tư)
+  status: LoanStatus; // ACTIVE hoặc COMPLETED
+  notes?: string; // Ghi chú
+  startDate?: string; // Ngày mở khoản đầu tư
+  endDate?: string; // Ngày kết thúc khoản đầu tư
+}
+
+// Giao dịch đầu tư (Transaction)
+export interface InvestmentTransaction {
+  id: string;
+  accountId: string; // ID của khoản đầu tư
+  type: InvestmentType; // DEPOSIT hoặc WITHDRAW
+  amount: number; // Số tiền nạp/rút
+  date: string; // Ngày nạp/rút
+  note?: string; // Ghi chú
+  status: LoanStatus; // ACTIVE hoặc COMPLETED
+}
+
+// Giữ lại Investment interface cũ để backward compatibility (sẽ deprecated)
 export interface Investment {
   id: string;
   name: string; // Tên khoản đầu tư (VD: Chứng khoán, Bất động sản, Quỹ đầu tư)

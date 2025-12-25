@@ -96,6 +96,21 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     setEditLoanName('');
   };
 
+  // Handle ESC key to close modals
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedLoan) setSelectedLoan(null);
+        if (loanToBorrow) setLoanToBorrow(null);
+        if (loanToEdit) setLoanToEdit(null);
+        if (showHistory) setShowHistory(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedLoan, loanToBorrow, loanToEdit, showHistory]);
+
   const handleMarkAsCompleted = (loanId: string) => {
     if (window.confirm('Bạn có chắc chắn muốn đánh dấu khoản vay này đã hoàn thành? Khoản vay sẽ được chuyển vào lịch sử.')) {
       onUpdateLoan(loanId, { status: LoanStatus.COMPLETED });
@@ -848,8 +863,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       {/* Modals for Payment, Borrow, History */}
       {/* Payment Modal */}
       {selectedLoan && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+          onClick={() => setSelectedLoan(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Trả nợ</h2>
               <button onClick={() => setSelectedLoan(null)} className="text-slate-400 hover:text-slate-600">
@@ -891,8 +912,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
       {/* Borrow Modal */}
       {loanToBorrow && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+          onClick={() => setLoanToBorrow(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Vay thêm</h2>
               <button onClick={() => setLoanToBorrow(null)} className="text-slate-400 hover:text-slate-600">
@@ -943,8 +970,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         const loan = loans.find(l => l.id === loanToEdit);
         if (!loan) return null;
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+          <div 
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+            onClick={() => setLoanToEdit(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa tên khoản vay</h2>
                 <button onClick={() => {
@@ -997,8 +1030,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         if (!loan) return null;
         const { paid, remaining } = getProgress(loan);
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
+          <div 
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+            onClick={() => setShowHistory(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử giao dịch - {loan.name}</h2>
                 <button onClick={() => setShowHistory(null)} className="text-slate-400 hover:text-slate-600">

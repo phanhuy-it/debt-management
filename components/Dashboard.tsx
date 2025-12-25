@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, InvestmentType, LoanStatus, Payment } from '../types';
 import { generateUUID } from '../utils/uuid';
 import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
+import { getVietnameseLunarDate } from '../utils/lunarCalendar';
 
 interface DashboardProps {
   loans: Loan[];
@@ -39,6 +40,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   const [selectedExpense, setSelectedExpense] = useState<UnpaidExpense | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const { formatAmount } = useAmountVisibility();
+  
+  // Format số tiền cho chart (chia cho 1,000,000)
+  const formatChartAmount = (value: number): string => {
+    const millions = value / 1000000;
+    return `${millions.toFixed(millions >= 10 ? 0 : 1)}M`;
+  };
   // Kiểm tra xem tháng hiện tại đã được thanh toán chưa
   const isCurrentMonthPaid = (payments: Payment[]): boolean => {
     const now = new Date();
@@ -256,6 +263,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     });
   }, []);
 
+  const todayLunarLabel = useMemo(() => {
+    return getVietnameseLunarDate(new Date());
+  }, []);
+
   const currentDay = new Date().getDate();
 
   const stats = useMemo(() => {
@@ -321,21 +332,169 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     };
   }, [loans]);
 
-  const barData = loans.filter(l => l.type === LoanType.BANK).map(loan => {
-    // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
-    // Check cả ID và note để hỗ trợ dữ liệu cũ
-    const paid = loan.payments
-      .filter(p => {
+  // Tính toán dữ liệu biểu đồ đường theo thời gian (tháng/năm) cho từng khoản vay
+  const lineChartData = useMemo(() => {
+    // Chỉ lấy các khoản vay ngân hàng, có monthlyPayment > 0 và đang ACTIVE
+    const bankLoans = loans.filter(l => 
+      l.type === LoanType.BANK && 
+      l.monthlyPayment > 0 && 
+      l.status === LoanStatus.ACTIVE
+    );
+    
+    if (bankLoans.length === 0) return [];
+    
+    // Tìm kỳ thanh toán cuối cùng (tháng cuối cùng có thanh toán) của khoản vay dài nhất
+    // Dựa trên số kỳ còn lại (termMonths - số kỳ đã trả)
+    const now = new Date();
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    let latestPaymentMonth: Date | null = null;
+    bankLoans.forEach(loan => {
+      // Tính số kỳ đã trả = tổng tiền đã trả / số tiền trả hàng tháng (giống LoanList)
+      const validPayments = loan.payments.filter(p => {
         const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
         return !isBorrow;
-      })
-      .reduce((acc, p) => acc + p.amount, 0);
-    return {
-      name: loan.name,
-      'Đã trả': paid,
-      'Còn lại': Math.max(0, loan.originalAmount - paid),
-    };
-  });
+      });
+      
+      const totalPaid = validPayments.reduce((sum, p) => sum + p.amount, 0);
+      // Tính số kỳ đã trả = số tiền đã trả / số tiền trả hàng tháng
+      const paidTerms = loan.monthlyPayment > 0 ? Math.floor(totalPaid / loan.monthlyPayment) : 0;
+      
+      // Số kỳ còn lại = tổng số kỳ - số kỳ đã trả
+      const remainingTerms = Math.max(0, loan.termMonths - paidTerms);
+      
+      // Kỳ thanh toán cuối cùng = tháng hiện tại + số kỳ còn lại
+      // Ví dụ: tháng hiện tại là 12/2025, còn lại 12 kỳ => kỳ cuối là 12/2026
+      const currentYear = currentMonth.getFullYear();
+      const currentMonthIndex = currentMonth.getMonth(); // 0-11
+      
+      // Tính tháng cuối cùng: currentMonthIndex + remainingTerms
+      // Nếu tháng hiện tại là 12/2025 (index 11), còn lại 12 kỳ:
+      // totalMonths = 11 + 12 = 23
+      // finalYear = 2025 + Math.floor(23/12) = 2025 + 1 = 2026
+      // finalMonth = 23 % 12 = 11 (tháng 12)
+      const totalMonths = currentMonthIndex + remainingTerms;
+      const finalYear = currentYear + Math.floor(totalMonths / 12);
+      const finalMonth = totalMonths % 12;
+      
+      const lastPaymentMonth = new Date(finalYear, finalMonth, 1);
+      
+      if (!latestPaymentMonth || lastPaymentMonth > latestPaymentMonth) {
+        latestPaymentMonth = lastPaymentMonth;
+      }
+    });
+    
+    if (!latestPaymentMonth) return [];
+    
+    // Thời gian bắt đầu: Tháng hiện tại
+    const startMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    
+    // Thời gian kết thúc: Kỳ thanh toán cuối cùng của khoản vay dài nhất
+    const endMonth = new Date(latestPaymentMonth.getFullYear(), latestPaymentMonth.getMonth(), 1);
+    
+    // Tạo danh sách các tháng từ startMonth đến endMonth
+    const chartMonths: Date[] = [];
+    let chartCurrentMonth = new Date(startMonth);
+    
+    while (chartCurrentMonth <= endMonth) {
+      chartMonths.push(new Date(chartCurrentMonth));
+      chartCurrentMonth = new Date(chartCurrentMonth.getFullYear(), chartCurrentMonth.getMonth() + 1, 1);
+    }
+    
+    // Tính toán dữ liệu cho mỗi tháng
+    // Tính số dư nợ thực tế hiện tại (Còn lại) cho mỗi khoản vay
+    const currentDebtByLoan: Record<string, number> = {};
+    bankLoans.forEach(loan => {
+      const validPayments = loan.payments.filter(p => {
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        return !isBorrow;
+      });
+      
+      const totalPaid = validPayments.reduce((sum, p) => sum + p.amount, 0);
+      // Số dư nợ thực tế hiện tại = originalAmount - tổng đã trả
+      currentDebtByLoan[loan.name] = Math.max(0, loan.originalAmount - totalPaid);
+    });
+    
+    // Lưu số dư nợ của tháng trước để tính tháng tiếp theo
+    const previousDebt: Record<string, number> = {};
+    
+    const chartData = chartMonths.map(monthDate => {
+      const year = monthDate.getFullYear();
+      const month = monthDate.getMonth();
+      const monthKey = `${year}-${month}`;
+      const timeLabel = monthDate.toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' });
+      
+      const dataPoint: Record<string, any> = {
+        time: timeLabel,
+        monthYear: `${month + 1}/${year}`,
+        date: monthDate
+      };
+      
+      // Tính số dư nợ còn lại cho mỗi khoản vay đến tháng này
+      // Bắt đầu từ số dư nợ thực tế hiện tại (Còn lại), mỗi tháng sau trừ đi monthlyPayment
+      bankLoans.forEach(loan => {
+        const loanStartDate = new Date(loan.startDate);
+        const loanStartMonth = new Date(loanStartDate.getFullYear(), loanStartDate.getMonth(), 1);
+        const loanEndDate = new Date(loanStartDate);
+        loanEndDate.setMonth(loanEndDate.getMonth() + loan.termMonths);
+        const loanEndMonth = new Date(loanEndDate.getFullYear(), loanEndDate.getMonth(), 1);
+        
+        const loanKey = loan.name;
+        const now = new Date();
+        const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        
+        // Nếu tháng này trước khi bắt đầu khoản vay, số dư nợ = số tiền gốc
+        if (monthDate < loanStartMonth) {
+          const debt = loan.originalAmount;
+          dataPoint[loanKey] = debt;
+          previousDebt[loanKey] = debt;
+        }
+        // Nếu tháng này sau khi kết thúc khoản vay, số dư nợ = 0
+        else if (monthDate > loanEndMonth) {
+          dataPoint[loanKey] = 0;
+          previousDebt[loanKey] = 0;
+        }
+        // Nếu tháng này là tháng hiện tại, dùng số dư nợ thực tế (Còn lại)
+        else if (monthDate.getTime() === currentMonth.getTime()) {
+          const debt = currentDebtByLoan[loanKey];
+          dataPoint[loanKey] = debt;
+          previousDebt[loanKey] = debt;
+        }
+        // Nếu tháng này là tháng tương lai (sau tháng hiện tại)
+        else if (monthDate > currentMonth) {
+          // Lấy số dư nợ tháng trước và trừ đi monthlyPayment
+          let currentDebt = previousDebt[loanKey] !== undefined ? previousDebt[loanKey] : currentDebtByLoan[loanKey];
+          currentDebt = Math.max(0, currentDebt - loan.monthlyPayment);
+          dataPoint[loanKey] = currentDebt;
+          previousDebt[loanKey] = currentDebt;
+        }
+        // Nếu tháng này là tháng quá khứ (trước tháng hiện tại)
+        else {
+          // Tính số dư nợ dựa trên payments thực tế trong quá khứ
+          const validPayments = loan.payments.filter(p => {
+            const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+            return !isBorrow;
+          });
+          
+          const monthEndDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
+          const totalPaidUpToMonth = validPayments
+            .filter(p => {
+              const paymentDate = new Date(p.date);
+              return paymentDate <= monthEndDate;
+            })
+            .reduce((sum, p) => sum + p.amount, 0);
+          
+          const debt = Math.max(0, loan.originalAmount - totalPaidUpToMonth);
+          dataPoint[loanKey] = debt;
+          previousDebt[loanKey] = debt;
+        }
+      });
+      
+      return dataPoint;
+    });
+    
+    return chartData;
+  }, [loans]);
 
   // Lấy chi tiết đầy đủ của expense được chọn
   const getExpenseDetails = (expense: UnpaidExpense) => {
@@ -357,6 +516,18 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     setShowDetailModal(false);
     setSelectedExpense(null);
   };
+
+  // Handle ESC key to close modal
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showDetailModal) {
+        handleCloseModal();
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [showDetailModal]);
 
   const handlePayment = () => {
     if (!selectedExpense) return;
@@ -385,6 +556,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         <div>
           <p className="text-sm text-slate-500">Hôm nay</p>
           <p className="text-lg font-semibold text-slate-900">{todayLabel}</p>
+          {todayLunarLabel && (
+            <p className="text-sm text-slate-600 mt-1">{todayLunarLabel}</p>
+          )}
         </div>
         <div className="flex items-center gap-2 text-emerald-600">
           <Calendar size={18} />
@@ -404,7 +578,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             <h3 className="text-2xl font-bold text-emerald-600">
               <Amount value={totalMonthlyIncome} id="dashboard-total-income" />
             </h3>
-            <p className="text-xs text-slate-500 mt-1">{incomes.length} nguồn thu nhập</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {incomes.length + investments.filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE).length} nguồn thu nhập
+            </p>
           </div>
           <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100">
             <p className="text-sm text-slate-600 mb-1">Tổng chi tiêu</p>
@@ -414,7 +590,8 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             <p className="text-xs text-slate-500 mt-1">
               {loans.filter(l => l.type === LoanType.BANK && l.monthlyPayment > 0).length + 
                creditCards.filter(c => c.paymentAmount > 0).length + 
-               fixedExpenses.length} khoản chi
+               fixedExpenses.length +
+               investments.filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE).length} khoản chi
             </p>
           </div>
           <div className={`bg-white/80 backdrop-blur-sm p-4 rounded-lg border ${
@@ -631,19 +808,70 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       
       {/* Progress Chart (Bank Only mostly) */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h4 className="text-lg font-semibold text-slate-800 mb-4">Tiến độ  Ngân hàng</h4>
-           {barData.length > 0 ? (
-            <div className="h-64 w-full">
+          <h4 className="text-lg font-semibold text-slate-800 mb-6">Tiến độ Ngân hàng</h4>
+           {lineChartData.length > 0 ? (
+            <div className="w-full" style={{ height: '600px' }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" width={120} tick={{fontSize: 12}} />
-                  <Tooltip formatter={(value: number) => formatAmount(Number(value), 'dashboard-bank-chart')} />
-                  <Legend />
-                  <Bar dataKey="Đã trả" stackId="a" fill="#10B981" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="Còn lại" stackId="a" fill="#E2E8F0" radius={[0, 4, 4, 0]} />
-                </BarChart>
+                <LineChart 
+                  data={lineChartData} 
+                  margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                  <XAxis 
+                    type="category"
+                    dataKey="time"
+                    tick={{ fontSize: 12, fill: '#64748B' }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                  />
+                  <YAxis 
+                    type="number"
+                    tick={{ fontSize: 12, fill: '#64748B' }}
+                    tickFormatter={(value) => formatChartAmount(value)}
+                  />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                      padding: '12px'
+                    }}
+                    formatter={(value: number, name: string) => {
+                      if (value === null || value === undefined) return null;
+                      return [
+                        `${formatChartAmount(value)} (${formatAmount(value, 'chart-tooltip')})`,
+                        name
+                      ];
+                    }}
+                    label="Số dư nợ còn lại"
+                    labelFormatter={(label) => label}
+                    labelStyle={{ fontWeight: 600, marginBottom: 8 }}
+                  />
+                  <Legend 
+                    wrapperStyle={{ paddingTop: 20 }}
+                    iconType="line"
+                  />
+                  {loans
+                    .filter(l => l.type === LoanType.BANK)
+                    .map((loan, index) => {
+                      const colors = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
+                      const color = colors[index % colors.length];
+                      return (
+                        <Line
+                          key={loan.id}
+                          type="monotone"
+                          dataKey={loan.name}
+                          stroke={color}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={false}
+                          connectNulls={false}
+                        />
+                      );
+                    })}
+                </LineChart>
               </ResponsiveContainer>
             </div>
            ) : (
@@ -653,8 +881,15 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
       {/* Modal chi tiết và thanh toán */}
       {showDetailModal && selectedExpense && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" style={{ marginTop: 0 }}>
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          style={{ marginTop: 0 }}
+          onClick={handleCloseModal}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6">
               {/* Header */}
               <div className="flex items-center justify-between mb-6">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3, HandCoins } from 'lucide-react';
-import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income, Lending, Investment } from './types';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3, HandCoins, MoreVertical, ChevronUp } from 'lucide-react';
+import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income, Lending, Investment, InvestmentAccount, InvestmentTransaction } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
 import CalendarView from './components/Calendar';
@@ -13,7 +13,7 @@ import InvestmentList from './components/InvestmentList';
 import PaymentRoadmap from './components/PaymentRoadmap';
 import Statistics from './components/Statistics';
 import Login from './components/Login';
-import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, saveInvestmentsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, saveInvestmentsToServer, loadInvestmentAccountsFromServer, saveInvestmentAccountsToServer, loadInvestmentTransactionsFromServer, saveInvestmentTransactionsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID, migrateIdToUUID } from './utils/uuid';
 import { AmountVisibilityProvider, useAmountVisibility } from './components/AmountVisibility';
 
@@ -53,7 +53,8 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [lendings, setLendings] = useState<Lending[]>([]);
-  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
+  const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddCardModal, setShowAddCardModal] = useState(false);
@@ -61,6 +62,7 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
   const [showAddLendingModal, setShowAddLendingModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { globalHidden, toggleGlobal } = useAmountVisibility();
   const getInitialTheme = (): Theme => {
@@ -90,20 +92,69 @@ function AppContent({ handleLogout }: AppContentProps) {
     const loadData = async () => {
       try {
         setIsLoading(true);
-        const [loadedLoans, loadedCards, loadedExpenses, loadedIncomes, loadedLendings, loadedInvestments] = await Promise.all([
+        const [loadedLoans, loadedCards, loadedExpenses, loadedIncomes, loadedLendings, loadedAccounts, loadedTransactions] = await Promise.all([
           loadLoansFromServer(),
           loadCreditCardsFromServer(),
           loadFixedExpensesFromServer(),
           loadIncomeFromServer(),
           loadLendingsFromServer(),
-          loadInvestmentsFromServer()
+          loadInvestmentAccountsFromServer(),
+          loadInvestmentTransactionsFromServer()
         ]);
         setLoans(loadedLoans);
         setCreditCards(loadedCards);
         setFixedExpenses(loadedExpenses);
         setIncomes(loadedIncomes);
         setLendings(loadedLendings);
-        setInvestments(loadedInvestments);
+        
+        // Use new structure if available, otherwise try to migrate from old
+        if (loadedAccounts.length > 0 || loadedTransactions.length > 0) {
+          setInvestmentAccounts(loadedAccounts);
+          setInvestmentTransactions(loadedTransactions);
+        } else {
+          // Fallback: try to load old format and migrate
+          const loadedInvestments = await loadInvestmentsFromServer();
+          if (loadedInvestments && loadedInvestments.length > 0) {
+            const accountsMap = new Map<string, InvestmentAccount>();
+            const transactions: InvestmentTransaction[] = [];
+            
+            loadedInvestments.forEach(inv => {
+              // Find or create account
+              let account = Array.from(accountsMap.values()).find(acc => acc.name === inv.name);
+              if (!account) {
+                account = {
+                  id: generateUUID(),
+                  name: inv.name,
+                  status: inv.status,
+                  notes: undefined
+                };
+                accountsMap.set(account.id, account);
+              }
+              
+              // Create transaction
+              transactions.push({
+                id: inv.id,
+                accountId: account.id,
+                type: inv.type,
+                amount: inv.amount,
+                date: inv.date,
+                note: inv.note,
+                status: inv.status
+              });
+            });
+            
+            const migratedAccounts = Array.from(accountsMap.values());
+            setInvestmentAccounts(migratedAccounts);
+            setInvestmentTransactions(transactions);
+            
+            // Save migrated data to new structure
+            await saveInvestmentAccountsToServer(migratedAccounts);
+            await saveInvestmentTransactionsToServer(transactions);
+          } else {
+            setInvestmentAccounts([]);
+            setInvestmentTransactions([]);
+          }
+        }
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu:', error);
       } finally {
@@ -196,12 +247,16 @@ function AppContent({ handleLogout }: AppContentProps) {
   }, [lendings, isLoading]);
 
   useEffect(() => {
-    if (!isLoading && investments.length >= 0) {
-      saveInvestmentsToServer(investments).catch(error => {
-        console.error('Lỗi khi lưu dữ liệu đầu tư:', error);
+    if (!isLoading) {
+      // Save using new structure
+      saveInvestmentAccountsToServer(investmentAccounts).catch(error => {
+        console.error('Lỗi khi lưu investment accounts:', error);
+      });
+      saveInvestmentTransactionsToServer(investmentTransactions).catch(error => {
+        console.error('Lỗi khi lưu investment transactions:', error);
       });
     }
-  }, [investments, isLoading]);
+  }, [investmentAccounts, investmentTransactions, isLoading]);
 
   useEffect(() => {
     // Set default date to today when opening modal
@@ -209,6 +264,23 @@ function AppContent({ handleLogout }: AppContentProps) {
       setNewStartDate(new Date().toISOString().split('T')[0]);
     }
   }, [showAddModal]);
+
+  // Handle ESC key to close all modals
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showAddModal) setShowAddModal(false);
+        if (showAddCardModal) setShowAddCardModal(false);
+        if (showAddExpenseModal) setShowAddExpenseModal(false);
+        if (showAddIncomeModal) setShowAddIncomeModal(false);
+        if (showAddLendingModal) setShowAddLendingModal(false);
+        if (showImportModal) setShowImportModal(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [showAddModal, showAddCardModal, showAddExpenseModal, showAddIncomeModal, showAddLendingModal, showImportModal]);
 
   useEffect(() => {
     // Set default date to today when opening lending modal
@@ -591,24 +663,40 @@ function AppContent({ handleLogout }: AppContentProps) {
     }));
   };
 
-  // Investment Handlers
-  const handleAddInvestment = (investment: Investment) => {
-    setInvestments([...investments, investment]);
+  // Investment Account Handlers
+  const handleAddInvestmentAccount = (account: InvestmentAccount) => {
+    setInvestmentAccounts([...investmentAccounts, account]);
   };
 
-  const handleDeleteInvestment = (id: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa khoản đầu tư này không?')) {
-      setInvestments(investments.filter(i => i.id !== id));
-    }
-  };
-
-  const handleUpdateInvestment = (id: string, updatedInvestment: Partial<Investment>) => {
-    setInvestments(investments.map(investment => {
-      if (investment.id === id) {
-        return { ...investment, ...updatedInvestment };
+  const handleUpdateInvestmentAccount = (id: string, updatedAccount: Partial<InvestmentAccount>) => {
+    setInvestmentAccounts(investmentAccounts.map(account => {
+      if (account.id === id) {
+        return { ...account, ...updatedAccount };
       }
-      return investment;
+      return account;
     }));
+  };
+
+  const handleDeleteInvestmentAccount = (id: string) => {
+    setInvestmentAccounts(investmentAccounts.filter(a => a.id !== id));
+  };
+
+  // Investment Transaction Handlers
+  const handleAddInvestmentTransaction = (transaction: InvestmentTransaction) => {
+    setInvestmentTransactions([...investmentTransactions, transaction]);
+  };
+
+  const handleUpdateInvestmentTransaction = (id: string, updatedTransaction: Partial<InvestmentTransaction>) => {
+    setInvestmentTransactions(investmentTransactions.map(transaction => {
+      if (transaction.id === id) {
+        return { ...transaction, ...updatedTransaction };
+      }
+      return transaction;
+    }));
+  };
+
+  const handleDeleteInvestmentTransaction = (id: string) => {
+    setInvestmentTransactions(investmentTransactions.filter(t => t.id !== id));
   };
 
   const handleAddLendingAmount = (lendingId: string, additionalAmount: number, note?: string) => {
@@ -853,88 +941,244 @@ function AppContent({ handleLogout }: AppContentProps) {
       </header>
 
       {/* Main Content */}
-      <main className="w-full px-4 py-6 md:ml-64 md:w-[calc(100%-16rem)]">
+      <main className="w-full px-4 py-6 pb-24 md:pb-6 md:ml-[306px] md:w-[calc(100%-306px)]">
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investments} onAddLoanPayment={handleAddPayment} onAddCardPayment={handleAddCardPayment} onAddExpensePayment={handleAddExpensePayment} />} />
+          <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investmentTransactions.map(t => {
+            const account = investmentAccounts.find(a => a.id === t.accountId);
+            return {
+              id: t.id,
+              name: account?.name || '',
+              type: t.type,
+              amount: t.amount,
+              date: t.date,
+              note: t.note,
+              status: t.status
+            } as Investment;
+          })} onAddLoanPayment={handleAddPayment} onAddCardPayment={handleAddCardPayment} onAddExpensePayment={handleAddExpensePayment} />} />
           <Route path="/loans" element={<LoanList loans={loans} onDeleteLoan={handleDeleteLoan} onAddPayment={handleAddPayment} onRemovePayment={handleRemovePayment} onAddLoanAmount={handleAddLoanAmount} onUpdateLoan={handleUpdateLoan} />} />
           <Route path="/lendings" element={<LendingList lendings={lendings} onDeleteLending={handleDeleteLending} onAddPayment={handleAddLendingPayment} onRemovePayment={handleRemoveLendingPayment} onAddLendingAmount={handleAddLendingAmount} onUpdateLending={handleUpdateLending} />} />
           <Route path="/credit-cards" element={<CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />} />
           <Route path="/expenses" element={<FixedExpenseList fixedExpenses={fixedExpenses} onDeleteExpense={handleDeleteFixedExpense} onAddPayment={handleAddExpensePayment} onRemovePayment={handleRemoveExpensePayment} onUpdateExpense={handleUpdateFixedExpense} />} />
           <Route path="/income" element={<IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} />} />
-          <Route path="/investments" element={<InvestmentList investments={investments} onDeleteInvestment={handleDeleteInvestment} onAddInvestment={handleAddInvestment} onUpdateInvestment={handleUpdateInvestment} />} />
+          <Route path="/investments" element={<InvestmentList accounts={investmentAccounts} transactions={investmentTransactions} onAddAccount={handleAddInvestmentAccount} onUpdateAccount={handleUpdateInvestmentAccount} onDeleteAccount={handleDeleteInvestmentAccount} onAddTransaction={handleAddInvestmentTransaction} onUpdateTransaction={handleUpdateInvestmentTransaction} onDeleteTransaction={handleDeleteInvestmentTransaction} />} />
           <Route path="/calendar" element={<CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />} />
           <Route path="/roadmap" element={<PaymentRoadmap loans={loans} />} />
-          <Route path="/statistics" element={<Statistics loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investments} />} />
+          <Route path="/statistics" element={<Statistics loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investmentTransactions.map(t => {
+            const account = investmentAccounts.find(a => a.id === t.accountId);
+            return {
+              id: t.id,
+              name: account?.name || '',
+              type: t.type,
+              amount: t.amount,
+              date: t.date,
+              note: t.note,
+              status: t.status
+            } as Investment;
+          })} />} />
           {/* Catch-all route - redirect unknown paths to dashboard */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 md:hidden z-20">
-        <div className="flex justify-around items-center h-16">
+      {showMobileMenu && (
+        <div 
+          className="fixed inset-0 bg-black/20 md:hidden z-[19]"
+          onClick={() => setShowMobileMenu(false)}
+        />
+      )}
+      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200 md:hidden z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+        <div className="relative">
+          <div className="flex justify-around items-center h-20 px-2 pb-safe">
           <Link 
             to="/dashboard"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'DASHBOARD' ? 'text-emerald-600' : 'text-slate-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 flex-1 min-w-0 transition-all duration-200 ${
+              activeTab === 'DASHBOARD' 
+                ? 'text-emerald-600 scale-105' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <LayoutDashboard size={20} />
-            <span className="text-[10px] font-medium">Tổng quan</span>
+            <div className={`p-2 rounded-xl transition-all ${
+              activeTab === 'DASHBOARD' 
+                ? 'bg-emerald-50 shadow-sm' 
+                : ''
+            }`}>
+              <LayoutDashboard size={22} strokeWidth={activeTab === 'DASHBOARD' ? 2.5 : 2} />
+            </div>
+            <span className={`text-[11px] font-medium truncate w-full text-center ${
+              activeTab === 'DASHBOARD' ? 'font-semibold' : ''
+            }`}>Tổng quan</span>
           </Link>
           <Link 
             to="/loans"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'LOANS' ? 'text-emerald-600' : 'text-slate-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 flex-1 min-w-0 transition-all duration-200 ${
+              activeTab === 'LOANS' 
+                ? 'text-emerald-600 scale-105' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <List size={20} />
-            <span className="text-[10px] font-medium">Vay</span>
-          </Link>
-          <Link 
-            to="/lendings"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'LENDINGS' ? 'text-amber-600' : 'text-slate-400'}`}
-          >
-            <HandCoins size={20} />
-            <span className="text-[10px] font-medium">Cho vay</span>
+            <div className={`p-2 rounded-xl transition-all ${
+              activeTab === 'LOANS' 
+                ? 'bg-emerald-50 shadow-sm' 
+                : ''
+            }`}>
+              <List size={22} strokeWidth={activeTab === 'LOANS' ? 2.5 : 2} />
+            </div>
+            <span className={`text-[11px] font-medium truncate w-full text-center ${
+              activeTab === 'LOANS' ? 'font-semibold' : ''
+            }`}>Vay</span>
           </Link>
           <Link 
             to="/credit-cards"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'CREDIT_CARDS' ? 'text-emerald-600' : 'text-slate-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 flex-1 min-w-0 transition-all duration-200 ${
+              activeTab === 'CREDIT_CARDS' 
+                ? 'text-indigo-600 scale-105' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <CreditCard size={20} />
-            <span className="text-[10px] font-medium">Thẻ</span>
+            <div className={`p-2 rounded-xl transition-all ${
+              activeTab === 'CREDIT_CARDS' 
+                ? 'bg-indigo-50 shadow-sm' 
+                : ''
+            }`}>
+              <CreditCard size={22} strokeWidth={activeTab === 'CREDIT_CARDS' ? 2.5 : 2} />
+            </div>
+            <span className={`text-[11px] font-medium truncate w-full text-center ${
+              activeTab === 'CREDIT_CARDS' ? 'font-semibold' : ''
+            }`}>Thẻ</span>
           </Link>
           <Link 
             to="/expenses"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'EXPENSES' ? 'text-emerald-600' : 'text-slate-400'}`}
+            className={`flex flex-col items-center justify-center gap-1.5 flex-1 min-w-0 transition-all duration-200 ${
+              activeTab === 'EXPENSES' 
+                ? 'text-purple-600 scale-105' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <Home size={20} />
-            <span className="text-[10px] font-medium">Chi tiêu</span>
+            <div className={`p-2 rounded-xl transition-all ${
+              activeTab === 'EXPENSES' 
+                ? 'bg-purple-50 shadow-sm' 
+                : ''
+            }`}>
+              <Home size={22} strokeWidth={activeTab === 'EXPENSES' ? 2.5 : 2} />
+            </div>
+            <span className={`text-[11px] font-medium truncate w-full text-center ${
+              activeTab === 'EXPENSES' ? 'font-semibold' : ''
+            }`}>Chi tiêu</span>
           </Link>
           <Link 
-            to="/calendar"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'CALENDAR' ? 'text-emerald-600' : 'text-slate-400'}`}
+            to="/income"
+            className={`flex flex-col items-center justify-center gap-1.5 flex-1 min-w-0 transition-all duration-200 ${
+              activeTab === 'INCOME' 
+                ? 'text-emerald-600 scale-105' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <Calendar size={20} />
-            <span className="text-[10px] font-medium">Lịch</span>
+            <div className={`p-2 rounded-xl transition-all ${
+              activeTab === 'INCOME' 
+                ? 'bg-emerald-50 shadow-sm' 
+                : ''
+            }`}>
+              <TrendingUp size={22} strokeWidth={activeTab === 'INCOME' ? 2.5 : 2} />
+            </div>
+            <span className={`text-[11px] font-medium truncate w-full text-center ${
+              activeTab === 'INCOME' ? 'font-semibold' : ''
+            }`}>Thu nhập</span>
           </Link>
-          <Link 
-            to="/roadmap"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'ROADMAP' ? 'text-emerald-600' : 'text-slate-400'}`}
+          <button
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+            className={`flex flex-col items-center justify-center gap-1.5 flex-1 min-w-0 transition-all duration-200 ${
+              showMobileMenu 
+                ? 'text-slate-700 scale-105' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <RouteIcon size={20} />
-            <span className="text-[10px] font-medium">Lộ trình</span>
-          </Link>
-          <Link 
-            to="/statistics"
-            className={`flex flex-col items-center gap-1 w-full h-full justify-center ${activeTab === 'STATISTICS' ? 'text-emerald-600' : 'text-slate-400'}`}
-          >
-            <BarChart3 size={20} />
-            <span className="text-[10px] font-medium">Thống kê</span>
-          </Link>
+            <div className={`p-2 rounded-xl transition-all ${
+              showMobileMenu 
+                ? 'bg-slate-100 shadow-sm' 
+                : ''
+            }`}>
+              <MoreVertical size={22} strokeWidth={showMobileMenu ? 2.5 : 2} />
+            </div>
+            <span className={`text-[11px] font-medium truncate w-full text-center ${
+              showMobileMenu ? 'font-semibold' : ''
+            }`}>Thêm</span>
+          </button>
+        </div>
+        
+          {/* Mobile Menu Dropdown */}
+          {showMobileMenu && (
+            <div className="absolute bottom-full left-0 right-0 bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] mb-1">
+              <div className="grid grid-cols-2 gap-2 p-3">
+              <Link 
+                to="/lendings"
+                onClick={() => setShowMobileMenu(false)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
+                  activeTab === 'LENDINGS' 
+                    ? 'bg-amber-50 text-amber-700 font-semibold' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <HandCoins size={18} />
+                <span className="text-sm">Cho vay</span>
+              </Link>
+              <Link 
+                to="/investments"
+                onClick={() => setShowMobileMenu(false)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
+                  activeTab === 'INVESTMENTS' 
+                    ? 'bg-blue-50 text-blue-700 font-semibold' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <BarChart3 size={18} />
+                <span className="text-sm">Đầu tư</span>
+              </Link>
+              <Link 
+                to="/calendar"
+                onClick={() => setShowMobileMenu(false)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
+                  activeTab === 'CALENDAR' 
+                    ? 'bg-blue-50 text-blue-700 font-semibold' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Calendar size={18} />
+                <span className="text-sm">Lịch</span>
+              </Link>
+              <Link 
+                to="/roadmap"
+                onClick={() => setShowMobileMenu(false)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all ${
+                  activeTab === 'ROADMAP' 
+                    ? 'bg-orange-50 text-orange-700 font-semibold' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <RouteIcon size={18} />
+                <span className="text-sm">Lộ trình</span>
+              </Link>
+              <Link 
+                to="/statistics"
+                onClick={() => setShowMobileMenu(false)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all col-span-2 ${
+                  activeTab === 'STATISTICS' 
+                    ? 'bg-blue-50 text-blue-700 font-semibold' 
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <BarChart3 size={18} />
+                <span className="text-sm">Thống kê</span>
+              </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Desktop Sidebar / Tabs */}
-      <div className="hidden md:flex fixed top-20 left-4 flex-col gap-2 p-4">
+      <div className="hidden md:flex fixed top-20 left-4 flex-col gap-2 pr-5 pt-3 w-[306px]">
          <Link 
             to="/dashboard"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'DASHBOARD' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
@@ -999,8 +1243,14 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Loan Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm khoản vay mới</h2>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1108,8 +1358,14 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Credit Card Modal */}
       {showAddCardModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setShowAddCardModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm thẻ tín dụng mới</h2>
               <button onClick={() => setShowAddCardModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1187,8 +1443,14 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Fixed Expense Modal */}
       {showAddExpenseModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setShowAddExpenseModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm chi tiêu cố định mới</h2>
               <button onClick={() => setShowAddExpenseModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1233,8 +1495,14 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Lending Modal */}
       {showAddLendingModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setShowAddLendingModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm khoản cho vay mới</h2>
               <button onClick={() => setShowAddLendingModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1305,8 +1573,14 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Add Income Modal */}
       {showAddIncomeModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setShowAddIncomeModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Thêm thu nhập mới</h2>
               <button onClick={() => setShowAddIncomeModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1351,8 +1625,14 @@ function AppContent({ handleLogout }: AppContentProps) {
 
       {/* Import Data Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setShowImportModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Nhập dữ liệu từ file</h2>
               <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -1396,23 +1676,6 @@ function AppContent({ handleLogout }: AppContentProps) {
         </div>
       )}
 
-      {/* Mobile Export/Import Buttons (hidden on desktop) */}
-      <div className="fixed bottom-20 right-4 md:hidden z-30 flex flex-col gap-2">
-        <button
-          onClick={handleExportData}
-          className="bg-emerald-600 text-white p-3 rounded-full shadow-lg hover:bg-emerald-700 transition-colors"
-          title="Xuất dữ liệu"
-        >
-          <Download size={20} />
-        </button>
-        <button
-          onClick={handleImportClick}
-          className="bg-blue-600 text-white p-3 rounded-full shadow-lg hover:bg-blue-700 transition-colors"
-          title="Nhập dữ liệu"
-        >
-          <Upload size={20} />
-        </button>
-      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment } from '../types';
-import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, lendingRowToLending, investmentRowToInvestment, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow, lendingToLendingRow, investmentToInvestmentRow } from './supabase';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction } from '../types';
+import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, lendingRowToLending, investmentRowToInvestment, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow, lendingToLendingRow, investmentToInvestmentRow, investmentAccountRowToInvestmentAccount, investmentAccountToInvestmentAccountRow, investmentTransactionRowToInvestmentTransaction, investmentTransactionToInvestmentTransactionRow } from './supabase';
 import { generateUUID, isValidUUID } from '../utils/uuid';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -1219,7 +1219,131 @@ export const saveLendingsToServer = async (lendings: Lending[]): Promise<void> =
 };
 
 /**
+ * Load investment accounts from Supabase (primary) or localStorage (fallback)
+ */
+export const loadInvestmentAccountsFromServer = async (): Promise<InvestmentAccount[]> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      // Try new structure first
+      const { data: accountsData, error: accountsError } = await supabase
+        .from('investment_accounts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!accountsError && accountsData && accountsData.length > 0) {
+        const accounts = accountsData.map(investmentAccountRowToInvestmentAccount);
+        
+        try {
+          localStorage.setItem('debt_investment_accounts', JSON.stringify(accounts));
+        } catch (e) {
+          console.warn('Không thể lưu vào localStorage:', e);
+        }
+        
+        return accounts;
+      }
+
+      // Fallback to old structure if new tables don't exist
+      const { data: oldData, error: oldError } = await supabase
+        .from('investments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!oldError && oldData && oldData.length > 0) {
+        // Migrate old data to new structure
+        const accountsMap = new Map<string, InvestmentAccount>();
+        oldData.forEach((row: any) => {
+          if (!accountsMap.has(row.name)) {
+            accountsMap.set(row.name, {
+              id: row.id, // Use first investment's ID as account ID (will be regenerated)
+              name: row.name,
+              status: row.status as 'ACTIVE' | 'COMPLETED',
+              notes: undefined
+            });
+          }
+        });
+        return Array.from(accountsMap.values());
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải từ Supabase:', error);
+    }
+  }
+
+  // Fallback to localStorage
+  const saved = localStorage.getItem('debt_investment_accounts');
+  if (saved) {
+    try {
+      const accounts = JSON.parse(saved);
+      if (Array.isArray(accounts)) {
+        return accounts;
+      }
+    } catch (error) {
+      console.error('Lỗi khi đọc từ localStorage:', error);
+    }
+  }
+
+  return [];
+};
+
+/**
+ * Load investment transactions from Supabase (primary) or localStorage (fallback)
+ */
+export const loadInvestmentTransactionsFromServer = async (): Promise<InvestmentTransaction[]> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      // Try new structure first
+      const { data: transactionsData, error: transactionsError } = await supabase
+        .from('investment_transactions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!transactionsError && transactionsData) {
+        const transactions = transactionsData.map(investmentTransactionRowToInvestmentTransaction);
+        
+        try {
+          localStorage.setItem('debt_investment_transactions', JSON.stringify(transactions));
+        } catch (e) {
+          console.warn('Không thể lưu vào localStorage:', e);
+        }
+        
+        return transactions;
+      }
+
+      // Fallback to old structure if new tables don't exist
+      const { data: oldData, error: oldError } = await supabase
+        .from('investments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!oldError && oldData && oldData.length > 0) {
+        // This will be handled by App.tsx migration logic
+        return [];
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải từ Supabase:', error);
+    }
+  }
+
+  // Fallback to localStorage
+  const saved = localStorage.getItem('debt_investment_transactions');
+  if (saved) {
+    try {
+      const transactions = JSON.parse(saved);
+      if (Array.isArray(transactions)) {
+        return transactions;
+      }
+    } catch (error) {
+      console.error('Lỗi khi đọc từ localStorage:', error);
+    }
+  }
+
+  return [];
+};
+
+/**
  * Load investments data from Supabase (primary) or localStorage (fallback)
+ * @deprecated Use loadInvestmentAccountsFromServer and loadInvestmentTransactionsFromServer instead
  */
 export const loadInvestmentsFromServer = async (): Promise<Investment[]> => {
   // Ưu tiên Supabase nếu được cấu hình
@@ -1281,7 +1405,184 @@ export const loadInvestmentsFromServer = async (): Promise<Investment[]> => {
 };
 
 /**
+ * Save investment accounts to Supabase (primary) or localStorage (fallback)
+ */
+export const saveInvestmentAccountsToServer = async (accounts: InvestmentAccount[]): Promise<void> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      const rows = accounts.map(account => investmentAccountToInvestmentAccountRow(account));
+      
+      // Use upsert to update existing and insert new records
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('investment_accounts')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) {
+          // Check if table doesn't exist
+          if (upsertError.message && upsertError.message.includes('does not exist')) {
+            console.warn('⚠️ Bảng investment_accounts chưa tồn tại. Vui lòng chạy migration SQL. Lưu vào localStorage...');
+            throw upsertError;
+          }
+          throw upsertError;
+        }
+      }
+
+      // Delete records that are not in the current array
+      if (accounts.length > 0) {
+        const currentIds = accounts.map(a => a.id);
+        const { data: allAccounts, error: selectError } = await supabase
+          .from('investment_accounts')
+          .select('id');
+        
+        if (selectError && selectError.message && selectError.message.includes('does not exist')) {
+          console.warn('⚠️ Bảng investment_accounts chưa tồn tại. Bỏ qua xóa records.');
+        } else if (allAccounts) {
+          const idsToDelete = allAccounts
+            .map(a => a.id)
+            .filter(id => !currentIds.includes(id));
+          
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('investment_accounts')
+              .delete()
+              .in('id', idsToDelete);
+            
+            if (deleteError) console.warn('Lỗi khi xóa records cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('investment_accounts')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        
+        if (deleteError && !deleteError.message?.includes('does not exist')) {
+          console.warn('Lỗi khi xóa tất cả records:', deleteError);
+        }
+      }
+
+      console.log('✅ Đã lưu investment accounts vào Supabase database');
+      
+      // Backup to localStorage
+      try {
+        localStorage.setItem('debt_investment_accounts', JSON.stringify(accounts));
+      } catch (e) {
+        console.warn('Không thể lưu vào localStorage:', e);
+      }
+      
+      return;
+    } catch (error: any) {
+      console.error('❌ Lỗi khi lưu vào Supabase:', error);
+      // Fallback to localStorage if table doesn't exist or other error
+      if (error?.message?.includes('does not exist')) {
+        console.warn('⚠️ Bảng chưa tồn tại. Lưu vào localStorage. Vui lòng chạy migration SQL trong Supabase.');
+      }
+    }
+  }
+
+  // Fallback to localStorage
+  try {
+    localStorage.setItem('debt_investment_accounts', JSON.stringify(accounts));
+    console.log('✅ Đã lưu investment accounts vào localStorage');
+  } catch (localError) {
+    console.error('Lỗi khi lưu vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
+ * Save investment transactions to Supabase (primary) or localStorage (fallback)
+ */
+export const saveInvestmentTransactionsToServer = async (transactions: InvestmentTransaction[]): Promise<void> => {
+  // Ưu tiên Supabase nếu được cấu hình
+  if (USE_SUPABASE) {
+    try {
+      const rows = transactions.map(transaction => investmentTransactionToInvestmentTransactionRow(transaction));
+      
+      // Use upsert to update existing and insert new records
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('investment_transactions')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) {
+          // Check if table doesn't exist
+          if (upsertError.message && upsertError.message.includes('does not exist')) {
+            console.warn('⚠️ Bảng investment_transactions chưa tồn tại. Vui lòng chạy migration SQL. Lưu vào localStorage...');
+            throw upsertError;
+          }
+          throw upsertError;
+        }
+      }
+
+      // Delete records that are not in the current array
+      if (transactions.length > 0) {
+        const currentIds = transactions.map(t => t.id);
+        const { data: allTransactions, error: selectError } = await supabase
+          .from('investment_transactions')
+          .select('id');
+        
+        if (selectError && selectError.message && selectError.message.includes('does not exist')) {
+          console.warn('⚠️ Bảng investment_transactions chưa tồn tại. Bỏ qua xóa records.');
+        } else if (allTransactions) {
+          const idsToDelete = allTransactions
+            .map(t => t.id)
+            .filter(id => !currentIds.includes(id));
+          
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('investment_transactions')
+              .delete()
+              .in('id', idsToDelete);
+            
+            if (deleteError) console.warn('Lỗi khi xóa records cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('investment_transactions')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        
+        if (deleteError && !deleteError.message?.includes('does not exist')) {
+          console.warn('Lỗi khi xóa tất cả records:', deleteError);
+        }
+      }
+
+      console.log('✅ Đã lưu investment transactions vào Supabase database');
+      
+      // Backup to localStorage
+      try {
+        localStorage.setItem('debt_investment_transactions', JSON.stringify(transactions));
+      } catch (e) {
+        console.warn('Không thể lưu vào localStorage:', e);
+      }
+      
+      return;
+    } catch (error: any) {
+      console.error('❌ Lỗi khi lưu vào Supabase:', error);
+      // Fallback to localStorage if table doesn't exist or other error
+      if (error?.message?.includes('does not exist')) {
+        console.warn('⚠️ Bảng chưa tồn tại. Lưu vào localStorage. Vui lòng chạy migration SQL trong Supabase.');
+      }
+    }
+  }
+
+  // Fallback to localStorage
+  try {
+    localStorage.setItem('debt_investment_transactions', JSON.stringify(transactions));
+    console.log('✅ Đã lưu investment transactions vào localStorage');
+  } catch (localError) {
+    console.error('Lỗi khi lưu vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
  * Save investments data to Supabase (primary) or localStorage (fallback)
+ * @deprecated Use saveInvestmentAccountsToServer and saveInvestmentTransactionsToServer instead
  */
 export const saveInvestmentsToServer = async (investments: Investment[]): Promise<void> => {
   // Ưu tiên Supabase nếu được cấu hình

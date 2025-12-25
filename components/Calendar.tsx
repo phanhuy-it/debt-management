@@ -29,6 +29,18 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
 
+  // Handle ESC key to close modal
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedDay) {
+        setSelectedDay(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedDay]);
+
   // Tính toán các ngày trong tháng và số tiền đến hạn
   const calendarDays = useMemo(() => {
     const firstDay = new Date(currentYear, currentMonth, 1);
@@ -397,8 +409,14 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
 
       {/* Modal hiển thị chi tiết ngày được chọn */}
       {selectedDay && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setSelectedDay(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">
                 Ngày {selectedDay.day} {selectedDay.isCurrentMonth ? '' : `(tháng ${selectedDay.date.getMonth() + 1})`}

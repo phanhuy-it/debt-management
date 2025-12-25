@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment } from '../types';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -86,6 +86,29 @@ export interface LendingRow {
 export interface InvestmentRow {
   id: string;
   name: string;
+  type: string;
+  amount: number;
+  date: string;
+  status: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentAccountRow {
+  id: string;
+  name: string;
+  status: string;
+  notes: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentTransactionRow {
+  id: string;
+  account_id: string;
   type: string;
   amount: number;
   date: string;
@@ -239,5 +262,47 @@ export const investmentToInvestmentRow = (investment: Investment): Partial<Inves
   date: investment.date,
   status: investment.status,
   note: investment.note || null
+});
+
+// Convert database row to app type for InvestmentAccount
+export const investmentAccountRowToInvestmentAccount = (row: InvestmentAccountRow): InvestmentAccount => ({
+  id: row.id,
+  name: row.name,
+  status: row.status as 'ACTIVE' | 'COMPLETED',
+  notes: row.notes || undefined,
+  startDate: row.start_date || undefined,
+  endDate: row.end_date || undefined
+});
+
+// Convert app type to database row for InvestmentAccount
+export const investmentAccountToInvestmentAccountRow = (account: InvestmentAccount): Partial<InvestmentAccountRow> => ({
+  id: account.id,
+  name: account.name,
+  status: account.status,
+  notes: account.notes || null,
+  start_date: account.startDate || null,
+  end_date: account.endDate || null
+});
+
+// Convert database row to app type for InvestmentTransaction
+export const investmentTransactionRowToInvestmentTransaction = (row: InvestmentTransactionRow): InvestmentTransaction => ({
+  id: row.id,
+  accountId: row.account_id,
+  type: row.type as 'DEPOSIT' | 'WITHDRAW',
+  amount: Number(row.amount),
+  date: row.date,
+  status: row.status as 'ACTIVE' | 'COMPLETED',
+  note: row.note || undefined
+});
+
+// Convert app type to database row for InvestmentTransaction
+export const investmentTransactionToInvestmentTransactionRow = (transaction: InvestmentTransaction): Partial<InvestmentTransactionRow> => ({
+  id: transaction.id,
+  account_id: transaction.accountId,
+  type: transaction.type,
+  amount: transaction.amount,
+  date: transaction.date,
+  status: transaction.status,
+  note: transaction.note || null
 });
 

@@ -137,6 +137,21 @@ const LendingList: React.FC<LendingListProps> = ({
     return new Date(dateString).toLocaleDateString('vi-VN');
   };
 
+  // Handle ESC key to close modals
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedLending) setSelectedLending(null);
+        if (lendingToAdd) setLendingToAdd(null);
+        if (editingLending) setEditingLending(null);
+        if (showHistory) setShowHistory(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedLending, lendingToAdd, editingLending, showHistory]);
+
   // Kiểm tra xem tháng hiện tại đã được nhận tiền chưa
   const isCurrentMonthReceived = (lending: Lending): boolean => {
     if (!lending.monthlyPayment || lending.monthlyPayment === 0) return false;
@@ -792,8 +807,14 @@ const LendingList: React.FC<LendingListProps> = ({
 
       {/* Payment Modal */}
       {selectedLending && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+          onClick={() => setSelectedLending(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Nhận tiền trả</h2>
               <button onClick={() => setSelectedLending(null)} className="text-slate-400 hover:text-slate-600">
@@ -835,8 +856,14 @@ const LendingList: React.FC<LendingListProps> = ({
 
       {/* Add Amount Modal */}
       {lendingToAdd && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+          onClick={() => setLendingToAdd(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Cho vay thêm</h2>
               <button onClick={() => setLendingToAdd(null)} className="text-slate-400 hover:text-slate-600">
@@ -884,8 +911,14 @@ const LendingList: React.FC<LendingListProps> = ({
 
       {/* Edit Lending Modal */}
       {editingLending && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setEditingLending(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa khoản cho vay</h2>
               <button onClick={() => setEditingLending(null)} className="text-slate-400 hover:text-slate-600">
@@ -960,8 +993,14 @@ const LendingList: React.FC<LendingListProps> = ({
         if (!lending) return null;
         const { received, remaining } = getProgress(lending);
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
+          <div 
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+            onClick={() => setShowHistory(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử giao dịch - {lending.name}</h2>
                 <button onClick={() => setShowHistory(null)} className="text-slate-400 hover:text-slate-600">

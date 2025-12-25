@@ -114,6 +114,20 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
     return sorted.sort(sortFn);
   }, [fixedExpenses, sortBy]);
 
+  // Handle ESC key to close modals
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedExpense) setSelectedExpense(null);
+        if (editingExpense) setEditingExpense(null);
+        if (showHistory) setShowHistory(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [selectedExpense, editingExpense, showHistory]);
+
   const renderExpenseRow = (expense: FixedExpense) => {
     const isPaid = isCurrentMonthPaid(expense);
     const overdue = isOverdue(expense);
@@ -293,8 +307,14 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
 
       {/* Edit Expense Modal */}
       {editingExpense && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+          onClick={() => setEditingExpense(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa chi tiêu cố định</h2>
               <button onClick={() => setEditingExpense(null)} className="text-slate-400 hover:text-slate-600">
@@ -344,8 +364,14 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
         const totalPaid = expense.payments.reduce((sum, p) => sum + p.amount, 0);
         const remaining = Math.max(0, expense.amount - totalPaid);
         return (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
+          <div 
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0"
+            onClick={() => setShowHistory(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử thanh toán - {expense.name}</h2>
                 <button onClick={() => setShowHistory(null)} className="text-slate-400 hover:text-slate-600">

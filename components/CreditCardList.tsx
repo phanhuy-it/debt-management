@@ -402,8 +402,14 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
 
       {/* Payment Modal */}
         {selectedCard && (
-         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up">
+         <div 
+           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 modal-top-0"
+           onClick={() => setSelectedCard(null)}
+         >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center">
               <h2 className="font-bold text-lg text-slate-800">Thanh toán thẻ tín dụng</h2>
               <button onClick={() => setSelectedCard(null)} className="text-slate-400 hover:text-slate-600">
@@ -445,8 +451,14 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
 
       {/* Edit Card Modal */}
         {editingCard && (
-         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in modal-top-0">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up">
+         <div 
+           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in modal-top-0"
+           onClick={() => setEditingCard(null)}
+         >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h2 className="font-bold text-lg text-slate-800">Chỉnh sửa thẻ tín dụng</h2>
               <button onClick={() => setEditingCard(null)} className="text-slate-400 hover:text-slate-600">
@@ -530,8 +542,14 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
         const totalPaid = getTotalPaid(card);
         const usagePercent = card.creditLimit > 0 ? Math.round((card.totalDebt / card.creditLimit) * 100) : 0;
         return (
-           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 modal-top-0">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col">
+          <div 
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 modal-top-0"
+            onClick={() => setShowHistory(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl animate-scale-up max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="p-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-slate-800">Lịch sử thanh toán - {card.name}</h2>
                 <button onClick={() => setShowHistory(null)} className="text-slate-400 hover:text-slate-600">
