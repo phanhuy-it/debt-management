@@ -39,6 +39,8 @@ interface UnpaidExpense {
 const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses, incomes, investments, onAddLoanPayment, onAddCardPayment, onAddExpensePayment }) => {
   const [selectedExpense, setSelectedExpense] = useState<UnpaidExpense | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showIncomeModal, setShowIncomeModal] = useState(false);
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
   const { formatAmount } = useAmountVisibility();
   
   // Format số tiền cho chart (chia cho 1,000,000)
@@ -211,41 +213,71 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     return unpaidExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   }, [unpaidExpenses]);
 
-  // Tính tổng thu nhập hàng tháng (bao gồm rút tiền đầu tư)
+  // Tính tổng thu nhập hàng tháng (tính tất cả các khoản sẽ thu trong tháng hiện tại)
   const totalMonthlyIncome = useMemo(() => {
-    const incomeFromIncomes = incomes.reduce((sum, income) => sum + income.amount, 0);
-    // Đầu tư: Rút tiền = thu nhập
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    
+    // Thu nhập từ Income: tính tất cả các khoản active (sẽ thu trong tháng này)
+    const incomeFromIncomes = incomes
+      .filter(income => income.status === LoanStatus.ACTIVE)
+      .reduce((sum, income) => sum + income.amount, 0);
+    
+    // Đầu tư: Rút tiền = thu nhập (tính các transaction trong tháng hiện tại)
     const incomeFromWithdraw = investments
       .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
-      .reduce((sum, inv) => sum + inv.amount, 0);
+      .reduce((sum, inv) => {
+        const transactionDate = new Date(inv.date);
+        if (transactionDate.getFullYear() === currentYear && 
+            transactionDate.getMonth() === currentMonth) {
+          return sum + inv.amount;
+        }
+        return sum;
+      }, 0);
+    
     return incomeFromIncomes + incomeFromWithdraw;
   }, [incomes, investments]);
 
-  // Tính tổng chi tiêu hàng tháng (loans + credit cards + fixed expenses + nạp tiền đầu tư)
+  // Tính tổng chi tiêu hàng tháng (tính tất cả các khoản sẽ chi trong tháng hiện tại)
   const totalMonthlyExpenses = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
     let total = 0;
     
-    // Khoản vay ngân hàng
-    loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
-      total += loan.monthlyPayment;
-    });
+    // Khoản vay ngân hàng: tính tất cả các khoản active (sẽ chi trong tháng này)
+    loans
+      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .forEach(loan => {
+        total += loan.monthlyPayment;
+      });
     
-    // Thẻ tín dụng (thanh toán tối thiểu)
-    creditCards.forEach(card => {
-      if (card.paymentAmount > 0) {
+    // Thẻ tín dụng: tính tất cả các khoản active (sẽ chi trong tháng này)
+    creditCards
+      .filter(card => card.paymentAmount > 0 && card.status === LoanStatus.ACTIVE)
+      .forEach(card => {
         total += card.paymentAmount;
-      }
-    });
+      });
     
-    // Chi tiêu cố định
-    fixedExpenses.forEach(expense => {
-      total += expense.amount;
-    });
+    // Chi tiêu cố định: tính tất cả các khoản active (sẽ chi trong tháng này)
+    fixedExpenses
+      .filter(expense => expense.status === LoanStatus.ACTIVE)
+      .forEach(expense => {
+        total += expense.amount;
+      });
     
-    // Đầu tư: Nạp tiền = chi tiêu
+    // Đầu tư: Nạp tiền = chi tiêu (tính các transaction trong tháng hiện tại)
     const expensesFromDeposit = investments
       .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
-      .reduce((sum, inv) => sum + inv.amount, 0);
+      .reduce((sum, inv) => {
+        const transactionDate = new Date(inv.date);
+        if (transactionDate.getFullYear() === currentYear && 
+            transactionDate.getMonth() === currentMonth) {
+          return sum + inv.amount;
+        }
+        return sum;
+      }, 0);
     total += expensesFromDeposit;
     
     return total;
@@ -253,6 +285,204 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
   // Tính dư/thiếu
   const monthlyBalance = totalMonthlyIncome - totalMonthlyExpenses;
+  
+  // Đếm số nguồn thu nhập sẽ thu trong tháng hiện tại
+  const currentMonthIncomeCount = useMemo(() => {
+    let count = 0;
+    
+    // Đếm Income active (sẽ thu trong tháng này)
+    count += incomes.filter(income => income.status === LoanStatus.ACTIVE).length;
+    
+    // Đếm Investment WITHDRAW có transaction trong tháng hiện tại
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    
+    investments
+      .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
+      .forEach(inv => {
+        const transactionDate = new Date(inv.date);
+        if (transactionDate.getFullYear() === currentYear && 
+            transactionDate.getMonth() === currentMonth) {
+          count++;
+        }
+      });
+    
+    return count;
+  }, [incomes, investments]);
+  
+  // Đếm số khoản chi sẽ chi trong tháng hiện tại
+  const currentMonthExpenseCount = useMemo(() => {
+    let count = 0;
+    
+    // Đếm Loan active (sẽ chi trong tháng này)
+    count += loans.filter(l => l.type === LoanType.BANK && l.monthlyPayment > 0 && l.status === LoanStatus.ACTIVE).length;
+    
+    // Đếm CreditCard active (sẽ chi trong tháng này)
+    count += creditCards.filter(c => c.paymentAmount > 0 && c.status === LoanStatus.ACTIVE).length;
+    
+    // Đếm FixedExpense active (sẽ chi trong tháng này)
+    count += fixedExpenses.filter(e => e.status === LoanStatus.ACTIVE).length;
+    
+    // Đếm Investment DEPOSIT có transaction trong tháng hiện tại
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    
+    investments
+      .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
+      .forEach(inv => {
+        const transactionDate = new Date(inv.date);
+        if (transactionDate.getFullYear() === currentYear && 
+            transactionDate.getMonth() === currentMonth) {
+          count++;
+        }
+      });
+    
+    return count;
+  }, [loans, creditCards, fixedExpenses, investments]);
+
+  // Danh sách các khoản thu nhập trong tháng hiện tại (đã nhóm theo loại)
+  const monthlyIncomeListGrouped = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const grouped: Record<string, Array<{ id: string; name: string; amount: number; type: string; provider?: string; date?: string }>> = {};
+    
+    // Thu nhập từ Income
+    incomes
+      .filter(income => income.status === LoanStatus.ACTIVE)
+      .forEach(income => {
+        const type = 'Thu nhập';
+        if (!grouped[type]) {
+          grouped[type] = [];
+        }
+        grouped[type].push({
+          id: income.id,
+          name: income.name,
+          amount: income.amount,
+          type: type,
+          date: `Ngày ${income.receivedDate}`
+        });
+      });
+    
+    // Đầu tư: Rút tiền
+    investments
+      .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
+      .forEach(inv => {
+        const transactionDate = new Date(inv.date);
+        if (transactionDate.getFullYear() === currentYear && 
+            transactionDate.getMonth() === currentMonth) {
+          const type = 'Rút tiền đầu tư';
+          if (!grouped[type]) {
+            grouped[type] = [];
+          }
+          grouped[type].push({
+            id: inv.id,
+            name: inv.name,
+            amount: inv.amount,
+            type: type,
+            date: transactionDate.toLocaleDateString('vi-VN')
+          });
+        }
+      });
+    
+    return grouped;
+  }, [incomes, investments]);
+
+  // Danh sách các khoản thu nhập (flat list để tính tổng)
+  const monthlyIncomeList = useMemo(() => {
+    return Object.values(monthlyIncomeListGrouped).flat();
+  }, [monthlyIncomeListGrouped]);
+
+  // Danh sách các khoản chi tiêu trong tháng hiện tại (đã nhóm theo loại)
+  const monthlyExpenseListGrouped = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const grouped: Record<string, Array<{ id: string; name: string; amount: number; type: string; provider?: string; dueDate?: number; date?: string }>> = {};
+    
+    // Khoản vay ngân hàng
+    loans
+      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .forEach(loan => {
+        const type = 'Khoản vay ngân hàng';
+        if (!grouped[type]) {
+          grouped[type] = [];
+        }
+        grouped[type].push({
+          id: loan.id,
+          name: loan.name,
+          amount: loan.monthlyPayment,
+          type: type,
+          provider: loan.provider,
+          dueDate: loan.monthlyDueDate
+        });
+      });
+    
+    // Thẻ tín dụng
+    creditCards
+      .filter(card => card.paymentAmount > 0 && card.status === LoanStatus.ACTIVE)
+      .forEach(card => {
+        const type = 'Thẻ tín dụng';
+        if (!grouped[type]) {
+          grouped[type] = [];
+        }
+        grouped[type].push({
+          id: card.id,
+          name: card.name,
+          amount: card.paymentAmount,
+          type: type,
+          provider: card.provider,
+          dueDate: card.dueDate
+        });
+      });
+    
+    // Chi tiêu cố định
+    fixedExpenses
+      .filter(expense => expense.status === LoanStatus.ACTIVE)
+      .forEach(expense => {
+        const type = 'Chi tiêu cố định';
+        if (!grouped[type]) {
+          grouped[type] = [];
+        }
+        grouped[type].push({
+          id: expense.id,
+          name: expense.name,
+          amount: expense.amount,
+          type: type,
+          dueDate: expense.dueDate
+        });
+      });
+    
+    // Đầu tư: Nạp tiền
+    investments
+      .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
+      .forEach(inv => {
+        const transactionDate = new Date(inv.date);
+        if (transactionDate.getFullYear() === currentYear && 
+            transactionDate.getMonth() === currentMonth) {
+          const type = 'Nạp tiền đầu tư';
+          if (!grouped[type]) {
+            grouped[type] = [];
+          }
+          grouped[type].push({
+            id: inv.id,
+            name: inv.name,
+            amount: inv.amount,
+            type: type,
+            date: transactionDate.toLocaleDateString('vi-VN')
+          });
+        }
+      });
+    
+    return grouped;
+  }, [loans, creditCards, fixedExpenses, investments]);
+
+  // Danh sách các khoản chi tiêu (flat list để tính tổng)
+  const monthlyExpenseList = useMemo(() => {
+    return Object.values(monthlyExpenseListGrouped).flat();
+  }, [monthlyExpenseListGrouped]);
   
   const todayLabel = useMemo(() => {
     return new Date().toLocaleDateString('vi-VN', {
@@ -520,14 +750,22 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   // Handle ESC key to close modal
   React.useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showDetailModal) {
-        handleCloseModal();
+      if (e.key === 'Escape') {
+        if (showDetailModal) {
+          handleCloseModal();
+        }
+        if (showIncomeModal) {
+          setShowIncomeModal(false);
+        }
+        if (showExpenseModal) {
+          setShowExpenseModal(false);
+        }
       }
     };
 
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [showDetailModal]);
+  }, [showDetailModal, showIncomeModal, showExpenseModal]);
 
   const handlePayment = () => {
     if (!selectedExpense) return;
@@ -573,25 +811,28 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           Tình hình tài chính hàng tháng
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-emerald-100">
+          <div 
+            onClick={() => setShowIncomeModal(true)}
+            className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-emerald-100 cursor-pointer hover:bg-white transition-colors"
+          >
             <p className="text-sm text-slate-600 mb-1">Tổng thu nhập</p>
             <h3 className="text-2xl font-bold text-emerald-600">
               <Amount value={totalMonthlyIncome} id="dashboard-total-income" />
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              {incomes.length + investments.filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE).length} nguồn thu nhập
+              {currentMonthIncomeCount} nguồn thu nhập
             </p>
           </div>
-          <div className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100">
+          <div 
+            onClick={() => setShowExpenseModal(true)}
+            className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100 cursor-pointer hover:bg-white transition-colors"
+          >
             <p className="text-sm text-slate-600 mb-1">Tổng chi tiêu</p>
             <h3 className="text-2xl font-bold text-red-600">
               <Amount value={totalMonthlyExpenses} id="dashboard-total-expenses" />
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              {loans.filter(l => l.type === LoanType.BANK && l.monthlyPayment > 0).length + 
-               creditCards.filter(c => c.paymentAmount > 0).length + 
-               fixedExpenses.length +
-               investments.filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE).length} khoản chi
+              {currentMonthExpenseCount} khoản chi
             </p>
           </div>
           <div className={`bg-white/80 backdrop-blur-sm p-4 rounded-lg border ${
@@ -878,6 +1119,198 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             <div className="h-32 flex items-center justify-center text-slate-400">Chưa có khoản vay ngân hàng để hiển thị biểu đồ</div>
            )}
       </div>
+
+      {/* Modal danh sách thu nhập */}
+      {showIncomeModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          style={{ marginTop: 0 }}
+          onClick={() => setShowIncomeModal(false)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Danh sách thu nhập tháng này</h3>
+                <button
+                  onClick={() => setShowIncomeModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X size={20} className="text-slate-500" />
+                </button>
+              </div>
+
+              {/* Tổng thu nhập */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-slate-600 mb-1">Tổng thu nhập</p>
+                <h3 className="text-2xl font-bold text-emerald-600">
+                  <Amount value={totalMonthlyIncome} id="modal-total-income" />
+                </h3>
+              </div>
+
+              {/* Danh sách */}
+              {Object.keys(monthlyIncomeListGrouped).length > 0 ? (
+                <div className="space-y-4">
+                  {Object.entries(monthlyIncomeListGrouped).map(([type, items]) => {
+                    const groupTotal = items.reduce((sum, item) => sum + item.amount, 0);
+                    return (
+                      <div key={type} className="space-y-2">
+                        {/* Tiêu đề nhóm */}
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                          <h4 className="font-semibold text-slate-700 flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
+                              {type}
+                            </span>
+                            <span className="text-sm text-slate-500">
+                              ({items.length} khoản)
+                            </span>
+                          </h4>
+                          <p className="font-bold text-emerald-600">
+                            <Amount value={groupTotal} id={`income-group-${type}`} />
+                          </p>
+                        </div>
+                        {/* Danh sách khoản trong nhóm */}
+                        <div className="space-y-2 pl-2">
+                          {items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors"
+                            >
+                              <div className="flex-1">
+                                <p className="font-medium text-slate-900">{item.name}</p>
+                                {item.provider && (
+                                  <p className="text-xs text-slate-500 mt-1">{item.provider}</p>
+                                )}
+                                {item.date && (
+                                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                    <Calendar size={12} />
+                                    {item.date}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="text-right ml-4">
+                                <p className="font-semibold text-emerald-600">
+                                  <Amount value={item.amount} id={`income-item-${item.id}`} />
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-400">
+                  Chưa có khoản thu nhập nào trong tháng này
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal danh sách chi tiêu */}
+      {showExpenseModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+          style={{ marginTop: 0 }}
+          onClick={() => setShowExpenseModal(false)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Danh sách chi tiêu tháng này</h3>
+                <button
+                  onClick={() => setShowExpenseModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X size={20} className="text-slate-500" />
+                </button>
+              </div>
+
+              {/* Tổng chi tiêu */}
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-slate-600 mb-1">Tổng chi tiêu</p>
+                <h3 className="text-2xl font-bold text-red-600">
+                  <Amount value={totalMonthlyExpenses} id="modal-total-expenses" />
+                </h3>
+              </div>
+
+              {/* Danh sách */}
+              {Object.keys(monthlyExpenseListGrouped).length > 0 ? (
+                <div className="space-y-4">
+                  {Object.entries(monthlyExpenseListGrouped).map(([type, items]) => {
+                    const groupTotal = items.reduce((sum, item) => sum + item.amount, 0);
+                    return (
+                      <div key={type} className="space-y-2">
+                        {/* Tiêu đề nhóm */}
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                          <h4 className="font-semibold text-slate-700 flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                              {type}
+                            </span>
+                            <span className="text-sm text-slate-500">
+                              ({items.length} khoản)
+                            </span>
+                          </h4>
+                          <p className="font-bold text-red-600">
+                            <Amount value={groupTotal} id={`expense-group-${type}`} />
+                          </p>
+                        </div>
+                        {/* Danh sách khoản trong nhóm */}
+                        <div className="space-y-2 pl-2">
+                          {items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors"
+                            >
+                              <div className="flex-1">
+                                <p className="font-medium text-slate-900">{item.name}</p>
+                                {item.provider && (
+                                  <p className="text-xs text-slate-500 mt-1">{item.provider}</p>
+                                )}
+                                {item.dueDate && (
+                                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                    <Calendar size={12} />
+                                    Đến hạn ngày {item.dueDate}
+                                  </p>
+                                )}
+                                {item.date && (
+                                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                    <Calendar size={12} />
+                                    {item.date}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="text-right ml-4">
+                                <p className="font-semibold text-red-600">
+                                  <Amount value={item.amount} id={`expense-item-${item.id}`} />
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-slate-400">
+                  Chưa có khoản chi tiêu nào trong tháng này
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal chi tiết và thanh toán */}
       {showDetailModal && selectedExpense && (
