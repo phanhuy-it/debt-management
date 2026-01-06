@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Loan, LoanType, LoanStatus, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
-import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2, Archive, CheckCheck } from 'lucide-react';
+import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2, Archive, CheckCheck, Smartphone, ArrowRightLeft } from 'lucide-react';
 import { Amount } from './AmountVisibility';
 
 interface LoanListProps {
@@ -15,7 +15,7 @@ interface LoanListProps {
 }
 
 type SortOption = 'dueDate' | 'amount';
-type LoanTab = 'BANK' | 'PERSONAL';
+type LoanTab = 'BANK' | 'APP' | 'PERSONAL';
 type StatusFilter = 'ACTIVE' | 'COMPLETED' | 'ALL';
 
 const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, onRemovePayment, onAddLoanAmount, onUpdateLoan }) => {
@@ -33,10 +33,10 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   const [editLoanName, setEditLoanName] = useState('');
 
   const handleQuickPay = (loanId: string, loan: Loan) => {
-    if (loan.type === LoanType.BANK && loan.monthlyPayment > 0) {
+    if ((loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0) {
       // Xác nhận trước khi trả
       if (window.confirm(`Xác nhận trả ${formatCurrency(loan.monthlyPayment)} cho khoản vay "${loan.name}"?`)) {
-        // Tự động trả với số tiền trả hàng tháng cho vay ngân hàng
+        // Tự động trả với số tiền trả hàng tháng cho vay ngân hàng/app
         const newPayment: Payment = {
           id: generateUUID(),
           date: new Date().toISOString(),
@@ -126,33 +126,46 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   const getProgress = (loan: Loan) => {
     // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
     // Check cả ID và note để hỗ trợ dữ liệu cũ
-    const paid = loan.payments
-      .filter(p => {
-        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-        return !isBorrow;
-      })
-      .reduce((sum, p) => sum + p.amount, 0);
-    const total = loan.originalAmount > 0 ? loan.originalAmount : 1;
-    const percent = Math.min(100, (paid / total) * 100);
-    return { paid, remaining: Math.max(0, loan.originalAmount - paid), percent };
+    const allPayments = loan.payments.filter(p => {
+      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+      return !isBorrow;
+    });
+    
+    const paid = allPayments.reduce((sum, p) => sum + p.amount, 0);
+    
+    // Nếu là khoản vay chỉ trả lãi, các payment không làm giảm gốc
+    // Kiểm tra cả true và !== false để đảm bảo xử lý đúng các giá trị undefined/null
+    if (loan.interestOnly === true) {
+      const total = loan.originalAmount > 0 ? loan.originalAmount : 1;
+      // Với interestOnly, remaining luôn bằng originalAmount (không giảm)
+      return { paid, remaining: loan.originalAmount, percent: 0 };
+    } else {
+      // Tính toán bình thường: payment làm giảm gốc
+      const total = loan.originalAmount > 0 ? loan.originalAmount : 1;
+      const percent = Math.min(100, (paid / total) * 100);
+      return { paid, remaining: Math.max(0, loan.originalAmount - paid), percent };
+    }
   };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('vi-VN');
   }
 
-  // Tính số kỳ đã trả (chỉ cho vay ngân hàng)
+  // Tính số kỳ đã trả (chỉ cho vay ngân hàng và app)
   const getPaidPeriods = (loan: Loan): number => {
-    if (loan.type !== LoanType.BANK || loan.monthlyPayment === 0) return 0;
+    if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return 0;
     
     const { paid } = getProgress(loan);
     // Tính số kỳ đã trả = số tiền đã trả / số tiền trả hàng tháng
     return Math.floor(paid / loan.monthlyPayment);
   };
 
-  // Tính tháng/năm tất toán dựa trên số kỳ còn lại (chỉ cho vay ngân hàng)
+  // Tính tháng/năm tất toán dựa trên số kỳ còn lại (chỉ cho vay ngân hàng và app)
   const calculateFinalPaymentDate = (loan: Loan): string | null => {
-    if (loan.type !== LoanType.BANK || loan.monthlyPayment === 0) return null;
+    if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return null;
+    
+    // Nếu là khoản vay chỉ trả lãi, không tính được ngày tất toán (gốc không giảm)
+    if (loan.interestOnly) return null;
     
     const { remaining } = getProgress(loan);
     if (remaining <= 0) return null;
@@ -178,9 +191,9 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     return `${monthNames[finalMonthIndex]}/${finalYear}`;
   }
 
-  // Kiểm tra xem tháng hiện tại đã được thanh toán chưa (chỉ cho vay ngân hàng)
+  // Kiểm tra xem tháng hiện tại đã được thanh toán chưa (chỉ cho vay ngân hàng và app)
   const isCurrentMonthPaid = (loan: Loan): boolean => {
-    if (loan.type !== LoanType.BANK || loan.monthlyPayment === 0) return false;
+    if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return false;
     
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -198,9 +211,9 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     return currentMonthPayments.length > 0;
   };
 
-  // Kiểm tra xem khoản vay có quá hạn không (chỉ cho vay ngân hàng)
+  // Kiểm tra xem khoản vay có quá hạn không (chỉ cho vay ngân hàng và app)
   const isOverdue = (loan: Loan): boolean => {
-    if (loan.type !== LoanType.BANK || loan.monthlyPayment === 0) return false;
+    if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return false;
     
     const now = new Date();
     const currentDay = now.getDate();
@@ -216,7 +229,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
   // Toggle trạng thái thanh toán tháng hiện tại
   const toggleCurrentMonthPayment = (loan: Loan) => {
-    if (loan.type !== LoanType.BANK || loan.monthlyPayment === 0) return;
+    if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return;
     
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -249,7 +262,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   };
 
   // Phân loại và Sắp xếp
-  const { bankLoans, personalLoans, completedLoans } = useMemo(() => {
+  const { bankLoans, appLoans, personalLoans, completedLoans } = useMemo(() => {
     // Lọc theo status
     let filteredLoans = loans;
     if (statusFilter === 'ACTIVE') {
@@ -260,6 +273,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     // statusFilter === 'ALL' thì không lọc
 
     const bank = filteredLoans.filter(l => l.type === LoanType.BANK);
+    const app = filteredLoans.filter(l => l.type === LoanType.APP);
     const personal = filteredLoans.filter(l => l.type === LoanType.PERSONAL);
     const completed = filteredLoans.filter(l => l.status === LoanStatus.COMPLETED);
 
@@ -269,8 +283,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         return b.originalAmount - a.originalAmount;
       } else {
         // Sắp xếp theo ngày
-        if (a.type === LoanType.BANK && b.type === LoanType.BANK) {
-          // Ngân hàng: Sắp xếp theo ngày trả  hàng tháng (1-31)
+        if ((a.type === LoanType.BANK || a.type === LoanType.APP) && (b.type === LoanType.BANK || b.type === LoanType.APP)) {
+          // Ngân hàng/App: Sắp xếp theo ngày trả  hàng tháng (1-31)
           return a.monthlyDueDate - b.monthlyDueDate;
         } else {
           // Người thân: Sắp xếp theo ngày vay (Cũ nhất lên đầu)
@@ -281,6 +295,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
     return {
       bankLoans: bank.sort(sortFn),
+      appLoans: app.sort(sortFn),
       personalLoans: personal.sort(sortFn),
       completedLoans: completed.sort((a, b) => {
         // Sắp xếp completed loans theo ngày hoàn thành (mới nhất trước)
@@ -291,24 +306,36 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     };
   }, [loans, sortBy, statusFilter]);
 
-  // Set tab mặc định dựa trên loại khoản vay có sẵn
+  // Set tab mặc định dựa trên loại khoản vay có sẵn (chỉ khi component mount lần đầu)
+  const [isInitialMount, setIsInitialMount] = useState(true);
+  
   useEffect(() => {
     if (statusFilter === 'COMPLETED') return; // Không tự động chuyển tab khi xem lịch sử
-    if (bankLoans.length > 0 && activeTab === 'BANK') return;
-    if (personalLoans.length > 0 && activeTab === 'PERSONAL') return;
-    if (bankLoans.length > 0) {
-      setActiveTab('BANK');
-    } else if (personalLoans.length > 0) {
-      setActiveTab('PERSONAL');
+    
+    // Chỉ tự động chuyển tab khi mount lần đầu, sau đó giữ nguyên tab người dùng đã chọn
+    if (isInitialMount) {
+      if (bankLoans.length > 0) {
+        setActiveTab('BANK');
+      } else if (appLoans.length > 0) {
+        setActiveTab('APP');
+      } else if (personalLoans.length > 0) {
+        setActiveTab('PERSONAL');
+      }
+      setIsInitialMount(false);
     }
-  }, [bankLoans.length, personalLoans.length, activeTab, statusFilter]);
+  }, [bankLoans.length, appLoans.length, personalLoans.length, statusFilter, isInitialMount]);
+  
+  // Reset isInitialMount khi statusFilter thay đổi
+  useEffect(() => {
+    setIsInitialMount(true);
+  }, [statusFilter]);
 
   const renderLoanRow = (loan: Loan) => {
     const { paid, remaining, percent } = getProgress(loan);
     const isPayOpen = selectedLoan === loan.id;
     const isBorrowOpen = loanToBorrow === loan.id;
     const isHistoryOpen = showHistory === loan.id;
-    const finalPaymentDate = loan.type === LoanType.BANK ? calculateFinalPaymentDate(loan) : null;
+    const finalPaymentDate = (loan.type === LoanType.BANK || loan.type === LoanType.APP) ? calculateFinalPaymentDate(loan) : null;
 
     return (
       <div
@@ -324,13 +351,24 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
           {/* Loại + Tên */}
           <div className="col-span-12 md:col-span-4 flex items-center gap-3">
-            <div className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
-              {loan.type === LoanType.BANK ? <Banknote size={18} /> : <User size={18} />}
+            <div className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${
+              loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-600' : 
+              loan.type === LoanType.APP ? 'bg-green-100 text-green-600' : 
+              'bg-purple-100 text-purple-600'
+            }`}>
+              {loan.type === LoanType.BANK ? <Banknote size={18} /> : 
+               loan.type === LoanType.APP ? <Smartphone size={18} /> : 
+               <User size={18} />}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="font-semibold text-slate-900 truncate">{loan.name}</div>
-                {loan.type === LoanType.BANK && (
+                {loan.interestOnly && (
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium whitespace-nowrap">
+                    Chỉ trả lãi
+                  </span>
+                )}
+                {(loan.type === LoanType.BANK || loan.type === LoanType.APP) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -373,7 +411,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
           {/* Actions */}
           <div className="col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1">
-            {loan.type === LoanType.BANK ? (
+            {(loan.type === LoanType.BANK || loan.type === LoanType.APP) ? (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -468,7 +506,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         <div className="grid grid-cols-12 gap-4 px-6 pb-4 items-center">
           {/* Thông tin chi tiết */}
           <div className="col-span-12 md:col-span-7 flex flex-wrap items-center gap-4 text-sm text-slate-600">
-            {loan.type === LoanType.BANK ? (
+            {(loan.type === LoanType.BANK || loan.type === LoanType.APP) ? (
               <>
                 <div className="flex items-center gap-2">
                   <Calendar size={16} className="text-slate-400" />
@@ -619,8 +657,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       {statusFilter !== 'COMPLETED' && (
         <>
       {/* Tổng dư nợ còn lại theo loại */}
-      {(bankLoans.length > 0 || personalLoans.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {(bankLoans.length > 0 || appLoans.length > 0 || personalLoans.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {bankLoans.length > 0 && (() => {
             const totalBankRemaining = bankLoans.reduce((sum, loan) => {
               const { remaining } = getProgress(loan);
@@ -635,6 +673,26 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                   </div>
                   <span className="text-xl font-bold text-red-600">
                     <Amount value={totalBankRemaining} id="total-bank-remaining" />
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+          
+          {appLoans.length > 0 && (() => {
+            const totalAppRemaining = appLoans.reduce((sum, loan) => {
+              const { remaining } = getProgress(loan);
+              return sum + remaining;
+            }, 0);
+            return (
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Smartphone size={20} className="text-green-600" />
+                    <span className="text-sm font-medium text-slate-600">Tổng dư nợ còn lại - App</span>
+                  </div>
+                  <span className="text-xl font-bold text-red-600">
+                    <Amount value={totalAppRemaining} id="total-app-remaining" />
                   </span>
                 </div>
               </div>
@@ -681,6 +739,26 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                 : 'bg-slate-200 text-slate-600'
             }`}>
               {bankLoans.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('APP')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'APP'
+              ? 'bg-green-50 text-green-700 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <Smartphone size={18} />
+          <span>App</span>
+          {appLoans.length > 0 && (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              activeTab === 'APP'
+                ? 'bg-green-200 text-green-800'
+                : 'bg-slate-200 text-slate-600'
+            }`}>
+              {appLoans.length}
             </span>
           )}
         </button>
@@ -737,8 +815,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                     >
                       <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
                         <div className="col-span-12 md:col-span-4 flex items-center gap-3">
-                          <div className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
-                            {loan.type === LoanType.BANK ? <Banknote size={18} /> : <User size={18} />}
+                          <div className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${
+                            loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-600' : 
+                            loan.type === LoanType.APP ? 'bg-green-100 text-green-600' : 
+                            'bg-purple-100 text-purple-600'
+                          }`}>
+                            {loan.type === LoanType.BANK ? <Banknote size={18} /> : 
+                             loan.type === LoanType.APP ? <Smartphone size={18} /> : 
+                             <User size={18} />}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="font-semibold text-slate-900 truncate">{loan.name}</div>
@@ -756,8 +840,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                           </div>
                         </div>
                         <div className="col-span-6 md:col-span-2 text-right">
-                          <span className={`text-xs px-2 py-1 rounded ${loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                            {loan.type === LoanType.BANK ? 'Ngân hàng' : 'Người thân'}
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-700' : 
+                            loan.type === LoanType.APP ? 'bg-green-100 text-green-700' : 
+                            'bg-purple-100 text-purple-700'
+                          }`}>
+                            {loan.type === LoanType.BANK ? 'Ngân hàng' : 
+                             loan.type === LoanType.APP ? 'App' : 
+                             'Người thân'}
                           </span>
                         </div>
                         <div className="col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1">
@@ -802,11 +892,6 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
         </>
       )}
 
-      {statusFilter !== 'COMPLETED' && loans.length === 0 && (
-        <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
-          <p className="text-slate-500">Bạn chưa có khoản vay nào.</p>
-        </div>
-      )}
 
       {/* BANK SECTION */}
       {statusFilter !== 'COMPLETED' && activeTab === 'BANK' && bankLoans.length > 0 && (
@@ -822,6 +907,24 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
           {/* Body */}
           <div className="divide-y divide-slate-100">
             {bankLoans.map(renderLoanRow)}
+          </div>
+        </div>
+      )}
+
+      {/* APP SECTION */}
+      {statusFilter !== 'COMPLETED' && activeTab === 'APP' && appLoans.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          {/* Header */}
+          <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
+            <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
+            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
+            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
+            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
+            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+          </div>
+          {/* Body */}
+          <div className="divide-y divide-slate-100">
+            {appLoans.map(renderLoanRow)}
           </div>
         </div>
       )}
@@ -845,11 +948,16 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       )}
 
       {/* Empty state for current tab */}
-      {statusFilter !== 'COMPLETED' && loans.length > 0 && (
+      {statusFilter !== 'COMPLETED' && (
         <>
           {activeTab === 'BANK' && bankLoans.length === 0 && (
             <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
               <p className="text-slate-500">Bạn chưa có khoản vay ngân hàng nào.</p>
+            </div>
+          )}
+          {activeTab === 'APP' && appLoans.length === 0 && (
+            <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
+              <p className="text-slate-500">Bạn chưa có khoản vay app nào.</p>
             </div>
           )}
           {activeTab === 'PERSONAL' && personalLoans.length === 0 && (
@@ -1066,15 +1174,57 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-4">
+                <div className="flex flex-wrap gap-4 text-sm text-slate-600 mb-4 items-center">
                   {loan.provider && (
                     <span>Người cho vay: <span className="font-semibold text-slate-800">{loan.provider}</span></span>
                   )}
                   {loan.type === LoanType.PERSONAL && (
                     <span>Ngày vay: <span className="font-semibold text-slate-800">{formatDate(loan.startDate)}</span></span>
                   )}
-                  {loan.type === LoanType.BANK && loan.monthlyPayment > 0 && (
+                  {(loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0 && (
                     <span>Trả hàng tháng: <span className="font-semibold text-slate-800"><Amount value={loan.monthlyPayment} id={`loan-${loan.id}-history-monthly`} /></span></span>
+                  )}
+                  {(loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.interestOnly && (
+                    <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium">
+                      ⚠️ Chỉ trả lãi
+                    </span>
+                  )}
+                  {(loan.type === LoanType.BANK || loan.type === LoanType.APP) && (
+                    <div className="flex gap-2 ml-auto">
+                      <button
+                        onClick={() => {
+                          const newInterestOnly = !loan.interestOnly;
+                          const action = newInterestOnly ? 'BẬT' : 'TẮT';
+                          if (window.confirm(`Bạn có chắc chắn muốn ${action} chế độ "Chỉ trả lãi" cho khoản vay "${loan.name}"?\n\n${newInterestOnly ? 'Khi bật: Số tiền gốc sẽ không giảm khi thanh toán, chỉ tính lãi.' : 'Khi tắt: Số tiền gốc sẽ giảm theo số tiền đã thanh toán.'}`)) {
+                            onUpdateLoan(loan.id, { interestOnly: newInterestOnly });
+                          }
+                        }}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors font-medium flex items-center gap-2 ${
+                          loan.interestOnly 
+                            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' 
+                            : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                        }`}
+                        title={loan.interestOnly ? 'Tắt chế độ chỉ trả lãi' : 'Bật chế độ chỉ trả lãi'}
+                      >
+                        {loan.interestOnly ? '✓' : '⚠️'}
+                        <span>{loan.interestOnly ? 'Đang chỉ trả lãi' : 'Chỉ trả lãi'}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const targetType = loan.type === LoanType.BANK ? LoanType.APP : LoanType.BANK;
+                          const targetName = loan.type === LoanType.BANK ? 'App' : 'Ngân hàng';
+                          if (window.confirm(`Bạn có chắc chắn muốn chuyển khoản vay "${loan.name}" sang mục ${targetName}?`)) {
+                            onUpdateLoan(loan.id, { type: targetType });
+                            setShowHistory(null);
+                          }
+                        }}
+                        className="px-4 py-2 text-sm bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors font-medium flex items-center gap-2"
+                        title={loan.type === LoanType.BANK ? 'Chuyển sang App' : 'Chuyển sang Ngân hàng'}
+                      >
+                        <ArrowRightLeft size={16} />
+                        <span>Chuyển</span>
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -1100,7 +1250,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                               {isBorrow ? (
                                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Vay thêm</span>
                               ) : (
-                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">Thanh toán</span>
+                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded inline-block text-center">Thanh toán</span>
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right font-medium ${isBorrow ? 'text-blue-600' : 'text-emerald-600'}`}>

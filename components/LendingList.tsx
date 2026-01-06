@@ -1059,7 +1059,7 @@ const LendingList: React.FC<LendingListProps> = ({
                               {isLend ? (
                                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded">Cho vay thêm</span>
                               ) : (
-                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">Nhận tiền</span>
+                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded inline-block text-center">Nhận tiền</span>
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right font-medium ${isLend ? 'text-amber-600' : 'text-emerald-600'}`}>

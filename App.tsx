@@ -174,6 +174,7 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [newMonthlyPayment, setNewMonthlyPayment] = useState('');
   const [newTerm, setNewTerm] = useState('');
   const [newPaidTerms, setNewPaidTerms] = useState('');
+  const [newInterestOnly, setNewInterestOnly] = useState(false);
 
   // Personal specific fields
   const [newAmount, setNewAmount] = useState('');
@@ -298,20 +299,34 @@ function AppContent({ handleLogout }: AppContentProps) {
     let payments: Payment[] = [];
     let monthlyDueDate = 0;
     
-    // Determine name logic: explicit for bank, default for personal if input hidden
-    const loanName = newType === LoanType.BANK ? newName : 'Tiền mặt';
+    // Determine name logic: explicit for bank/app, default for personal if input hidden
+    const loanName = (newType === LoanType.BANK || newType === LoanType.APP) ? newName : 'Tiền mặt';
 
-    if (newType === LoanType.BANK) {
+    if (newType === LoanType.BANK || newType === LoanType.APP) {
       monthlyPayment = parseFloat(newMonthlyPayment) || 0;
       term = parseInt(newTerm) || 0;
       const paidTerms = parseInt(newPaidTerms) || 0;
       
-      if (paidTerms > term) {
+      if (!newInterestOnly && paidTerms > term) {
         alert("Số kỳ đã trả không thể lớn hơn tổng số kỳ vay!");
         return;
       }
 
-      loanAmount = monthlyPayment * term;
+      // Nếu chỉ trả lãi, cần nhập số tiền gốc riêng (sẽ thêm input sau)
+      // Tạm thời: nếu interestOnly thì loanAmount = monthlyPayment * 500 (tạm tính)
+      // Hoặc có thể yêu cầu người dùng nhập số tiền gốc riêng
+      if (newInterestOnly) {
+        // Với interestOnly, monthlyPayment là tiền lãi, term có thể bỏ qua
+        // Số tiền gốc sẽ được nhập riêng - tạm thời lấy từ monthlyPayment * 500 để có số hợp lý
+        // (sẽ thêm input riêng cho số tiền gốc sau)
+        loanAmount = parseFloat(newAmount) || 0;
+        if (loanAmount === 0) {
+          alert("Vui lòng nhập số tiền gốc cho khoản vay chỉ trả lãi!");
+          return;
+        }
+      } else {
+        loanAmount = monthlyPayment * term;
+      }
       monthlyDueDate = newMonthlyDueDate;
 
       // Create initial payment record if terms are already paid
@@ -345,7 +360,8 @@ function AppContent({ handleLogout }: AppContentProps) {
       startDate: newType === LoanType.PERSONAL && newStartDate ? newStartDate : new Date().toISOString(),
       termMonths: term,
       payments: payments,
-      status: LoanStatus.ACTIVE
+      status: LoanStatus.ACTIVE,
+      interestOnly: (newType === LoanType.BANK || newType === LoanType.APP) ? newInterestOnly : undefined
     };
 
     setLoans([...loans, loan]);
@@ -363,6 +379,7 @@ function AppContent({ handleLogout }: AppContentProps) {
     setNewPaidTerms('');
     setNewAmount('');
     setNewStartDate(new Date().toISOString().split('T')[0]);
+    setNewInterestOnly(false);
   };
 
   const resetCardForm = () => {
@@ -1269,6 +1286,13 @@ function AppContent({ handleLogout }: AppContentProps) {
                  </button>
                  <button
                    type="button"
+                   onClick={() => setNewType(LoanType.APP)}
+                   className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.APP ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
+                 >
+                   Vay App
+                 </button>
+                 <button
+                   type="button"
                    onClick={() => setNewType(LoanType.PERSONAL)}
                    className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.PERSONAL ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
                  >
@@ -1276,7 +1300,7 @@ function AppContent({ handleLogout }: AppContentProps) {
                  </button>
               </div>
 
-              {newType === LoanType.BANK && (
+              {(newType === LoanType.BANK || newType === LoanType.APP) && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Tên khoản vay (Mục đích)
@@ -1287,29 +1311,64 @@ function AppContent({ handleLogout }: AppContentProps) {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  {newType === LoanType.BANK ? 'Tên ngân hàng / Tổ chức' : 'Tên người cho vay'}
+                  {newType === LoanType.BANK ? 'Tên ngân hàng / Tổ chức' : newType === LoanType.APP ? 'Tên app / Ứng dụng' : 'Tên người cho vay'}
                 </label>
-                <input required type="text" placeholder={newType === LoanType.BANK ? "VD: Vietcombank" : "VD: Anh Ba, Chị Tư"} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newProvider} onChange={e => setNewProvider(e.target.value)} />
+                <input required type="text" placeholder={newType === LoanType.BANK ? "VD: Vietcombank" : newType === LoanType.APP ? "VD: Tiki, Shopee, MoMo" : "VD: Anh Ba, Chị Tư"} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newProvider} onChange={e => setNewProvider(e.target.value)} />
               </div>
 
-              {/* BANK FIELDS */}
-              {newType === LoanType.BANK && (
+              {/* BANK/APP FIELDS */}
+              {(newType === LoanType.BANK || newType === LoanType.APP) && (
                 <div className="space-y-4 animate-fade-in">
+                  {/* Checkbox Chỉ trả lãi */}
+                  <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <input 
+                      type="checkbox" 
+                      id="interestOnly"
+                      checked={newInterestOnly}
+                      onChange={e => setNewInterestOnly(e.target.checked)}
+                      className="w-4 h-4 text-amber-600 border-slate-300 rounded focus:ring-amber-500"
+                    />
+                    <label htmlFor="interestOnly" className="text-sm font-medium text-slate-700 cursor-pointer">
+                      Chỉ trả lãi (số tiền trả hàng tháng không làm giảm gốc)
+                    </label>
+                  </div>
+
+                  {/* Số tiền gốc - chỉ hiển thị khi chọn "Chỉ trả lãi" */}
+                  {newInterestOnly && (
+                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền gốc (VNĐ) *</label>
+                      <input 
+                        required={newInterestOnly}
+                        type="number" 
+                        min="0" 
+                        placeholder="VD: 1000000000" 
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none bg-white" 
+                        value={newAmount} 
+                        onChange={e => setNewAmount(e.target.value)} 
+                      />
+                      <p className="text-xs text-amber-700 mt-1">Với khoản vay chỉ trả lãi, bạn cần nhập số tiền gốc riêng</p>
+                    </div>
+                  )}
+
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền trả hàng tháng (VNĐ)</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      {newInterestOnly ? 'Số tiền lãi trả hàng tháng (VNĐ)' : 'Số tiền trả hàng tháng (VNĐ)'}
+                    </label>
                     <input required type="number" min="0" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white" value={newMonthlyPayment} onChange={e => setNewMonthlyPayment(e.target.value)} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Tổng số tháng</label>
-                      <input required type="number" min="1" placeholder="12" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newTerm} onChange={e => setNewTerm(e.target.value)} />
+                  {!newInterestOnly && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Tổng số tháng</label>
+                        <input required type="number" min="1" placeholder="12" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newTerm} onChange={e => setNewTerm(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Số kỳ đã trả</label>
+                        <input type="number" min="0" max={newTerm} placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newPaidTerms} onChange={e => setNewPaidTerms(e.target.value)} />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Số kỳ đã trả</label>
-                      <input type="number" min="0" max={newTerm} placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newPaidTerms} onChange={e => setNewPaidTerms(e.target.value)} />
-                    </div>
-                  </div>
+                  )}
                   
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Ngày thanh toán hàng tháng</label>
@@ -1324,13 +1383,25 @@ function AppContent({ handleLogout }: AppContentProps) {
                     </select>
                   </div>
 
-                  <div className="pt-2">
-                    <div className="flex justify-between items-center text-sm font-medium text-slate-600 bg-slate-100 p-3 rounded-lg">
-                      <span>Tổng  dự tính:</span>
-                      <span className="text-emerald-600 font-bold text-lg">{formatCurrency(previewBankTotal)}</span>
+                  {!newInterestOnly && (
+                    <div className="pt-2">
+                      <div className="flex justify-between items-center text-sm font-medium text-slate-600 bg-slate-100 p-3 rounded-lg">
+                        <span>Tổng  dự tính:</span>
+                        <span className="text-emerald-600 font-bold text-lg">{formatCurrency(previewBankTotal)}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 text-center">*Tổng  = Tiền trả hàng tháng x Số tháng</p>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1 text-center">*Tổng  = Tiền trả hàng tháng x Số tháng</p>
-                  </div>
+                  )}
+
+                  {newInterestOnly && (
+                    <div className="pt-2">
+                      <div className="flex justify-between items-center text-sm font-medium text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                        <span>Số tiền gốc:</span>
+                        <span className="text-amber-700 font-bold text-lg">{formatCurrency(parseFloat(newAmount) || 0)}</span>
+                      </div>
+                      <p className="text-xs text-amber-700 mt-1 text-center">*Khoản vay này chỉ trả lãi, gốc không giảm theo thời gian</p>
+                    </div>
+                  )}
                 </div>
               )}
 

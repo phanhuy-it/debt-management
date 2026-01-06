@@ -1,5 +1,6 @@
 export enum LoanType {
   BANK = 'BANK',
+  APP = 'APP',
   PERSONAL = 'PERSONAL'
 }
 
@@ -30,6 +31,7 @@ export interface Loan {
   payments: Payment[];
   status: LoanStatus;
   notes?: string;
+  interestOnly?: boolean; // Nếu true: chỉ trả lãi, các payment không làm giảm gốc
 }
 
 export interface CreditCard {

@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS loans (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   provider TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('BANK', 'PERSONAL')),
+  type TEXT NOT NULL CHECK (type IN ('BANK', 'APP', 'PERSONAL')),
   original_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
   monthly_due_date INTEGER CHECK (monthly_due_date >= 1 AND monthly_due_date <= 31),
   monthly_payment DECIMAL(15, 2) DEFAULT 0,
@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS loans (
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED')),
   notes TEXT,
   payments JSONB DEFAULT '[]'::jsonb,
+  interest_only BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -78,7 +78,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
     () =>
       loans.filter(
         (loan) =>
-          loan.type === LoanType.BANK &&
+          (loan.type === LoanType.BANK || loan.type === LoanType.APP) &&
           loan.status === 'ACTIVE' &&
           loan.monthlyPayment > 0
       ),
@@ -115,7 +115,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
       id: sim.id,
       name: sim.name,
       provider: sim.provider,
-      type: LoanType.BANK,
+      type: LoanType.APP,
       originalAmount: sim.originalAmount,
       monthlyDueDate: 1,
       monthlyPayment: sim.monthlyPayment,

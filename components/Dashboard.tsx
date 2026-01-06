@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, InvestmentType, LoanStatus, Payment } from '../types';
 import { generateUUID } from '../utils/uuid';
-import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X } from 'lucide-react';
+import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 import { getVietnameseLunarDate } from '../utils/lunarCalendar';
 
@@ -30,6 +30,7 @@ interface UnpaidExpense {
   id: string;
   name: string;
   type: 'loan' | 'creditCard' | 'expense';
+  loanType?: LoanType; // Phân biệt BANK, APP, PERSONAL cho loan
   amount: number;
   dueDate: number;
   provider?: string;
@@ -87,6 +88,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           id: loan.id,
           name: loan.name,
           type: 'loan',
+          loanType: LoanType.BANK,
           amount: loan.monthlyPayment,
           dueDate: loan.monthlyDueDate,
           provider: loan.provider,
@@ -101,6 +103,47 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
               id: loan.id,
               name: loan.name,
               type: 'loan',
+              loanType: LoanType.BANK,
+              amount: loan.monthlyPayment,
+              dueDate: loan.monthlyDueDate,
+              provider: loan.provider,
+              isNextMonth: true
+            });
+          }
+        }
+        // Nếu không vượt qua tháng, không cần thêm các khoản đã thanh toán (vì chúng đã được xử lý ở phần chưa thanh toán)
+      }
+    });
+
+    // Khoản vay app
+    loans.filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0).forEach(loan => {
+      const isPaid = isCurrentMonthPaid(loan.payments.filter(p => {
+        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+        return !isBorrow;
+      }));
+
+      if (!isPaid) {
+        // Chưa thanh toán tháng này
+        result.push({
+          id: loan.id,
+          name: loan.name,
+          type: 'loan',
+          loanType: LoanType.APP,
+          amount: loan.monthlyPayment,
+          dueDate: loan.monthlyDueDate,
+          provider: loan.provider,
+          isNextMonth: false
+        });
+      } else {
+        // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
+        if (nextMonthEndDay > 0) {
+          // Có ngày của tháng kế tiếp trong 10 ngày tới
+          if (loan.monthlyDueDate <= nextMonthEndDay) {
+            result.push({
+              id: loan.id,
+              name: loan.name,
+              type: 'loan',
+              loanType: LoanType.APP,
               amount: loan.monthlyPayment,
               dueDate: loan.monthlyDueDate,
               provider: loan.provider,
@@ -246,9 +289,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     const currentMonth = now.getMonth();
     let total = 0;
     
-    // Khoản vay ngân hàng: tính tất cả các khoản active (sẽ chi trong tháng này)
+    // Khoản vay ngân hàng và app: tính tất cả các khoản active (sẽ chi trong tháng này)
     loans
-      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
       .forEach(loan => {
         total += loan.monthlyPayment;
       });
@@ -316,7 +359,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     let count = 0;
     
     // Đếm Loan active (sẽ chi trong tháng này)
-    count += loans.filter(l => l.type === LoanType.BANK && l.monthlyPayment > 0 && l.status === LoanStatus.ACTIVE).length;
+    count += loans.filter(l => (l.type === LoanType.BANK || l.type === LoanType.APP) && l.monthlyPayment > 0 && l.status === LoanStatus.ACTIVE).length;
     
     // Đếm CreditCard active (sẽ chi trong tháng này)
     count += creditCards.filter(c => c.paymentAmount > 0 && c.status === LoanStatus.ACTIVE).length;
@@ -420,6 +463,24 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         });
       });
     
+    // Khoản vay app
+    loans
+      .filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .forEach(loan => {
+        const type = 'Khoản vay app';
+        if (!grouped[type]) {
+          grouped[type] = [];
+        }
+        grouped[type].push({
+          id: loan.id,
+          name: loan.name,
+          amount: loan.monthlyPayment,
+          type: type,
+          provider: loan.provider,
+          dueDate: loan.monthlyDueDate
+        });
+      });
+    
     // Thẻ tín dụng
     creditCards
       .filter(card => card.paymentAmount > 0 && card.status === LoanStatus.ACTIVE)
@@ -505,6 +566,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     let bankOriginal = 0;
     let bankPaid = 0;
     let bankRemaining = 0;
+    let appOriginal = 0;
+    let appPaid = 0;
+    let appRemaining = 0;
     let personalOriginal = 0;
     let personalPaid = 0;
     let personalRemaining = 0;
@@ -523,12 +587,19 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         .reduce((acc, p) => acc + p.amount, 0);
       totalPaid += paidForLoan;
       
-      const remaining = Math.max(0, loan.originalAmount - paidForLoan);
+      // Nếu là khoản vay chỉ trả lãi, remaining = originalAmount (không giảm)
+      const remaining = loan.interestOnly 
+        ? loan.originalAmount 
+        : Math.max(0, loan.originalAmount - paidForLoan);
       
       if (loan.type === LoanType.BANK) {
         bankOriginal += loan.originalAmount;
         bankPaid += paidForLoan;
         bankRemaining += remaining;
+      } else if (loan.type === LoanType.APP) {
+        appOriginal += loan.originalAmount;
+        appPaid += paidForLoan;
+        appRemaining += remaining;
       } else {
         personalOriginal += loan.originalAmount;
         personalPaid += paidForLoan;
@@ -546,7 +617,22 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       }
     });
 
-    const totalRemaining = Math.max(0, totalOriginal - totalPaid);
+    // Tính totalRemaining - phải tính lại từ từng loan để đúng với interestOnly
+    const totalRemaining = loans.reduce((sum, loan) => {
+      const paidForLoan = loan.payments
+        .filter(p => {
+          const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+          return !isBorrow;
+        })
+        .reduce((acc, p) => acc + p.amount, 0);
+      
+      // Nếu là khoản vay chỉ trả lãi, remaining = originalAmount (không giảm)
+      const remaining = loan.interestOnly 
+        ? loan.originalAmount 
+        : Math.max(0, loan.originalAmount - paidForLoan);
+      
+      return sum + remaining;
+    }, 0);
     
     return {
       totalOriginal,
@@ -555,6 +641,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       bankOriginal,
       bankPaid,
       bankRemaining,
+      appOriginal,
+      appPaid,
+      appRemaining,
       personalOriginal,
       personalPaid,
       personalRemaining,
@@ -564,9 +653,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
   // Tính toán dữ liệu biểu đồ đường theo thời gian (tháng/năm) cho từng khoản vay
   const lineChartData = useMemo(() => {
-    // Chỉ lấy các khoản vay ngân hàng, có monthlyPayment > 0 và đang ACTIVE
+    // Chỉ lấy các khoản vay ngân hàng và app, có monthlyPayment > 0 và đang ACTIVE
     const bankLoans = loans.filter(l => 
-      l.type === LoanType.BANK && 
+      (l.type === LoanType.BANK || l.type === LoanType.APP) && 
       l.monthlyPayment > 0 && 
       l.status === LoanStatus.ACTIVE
     );
@@ -922,10 +1011,24 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                 ? 'text-amber-700 bg-amber-50 border-amber-200'
                 : 'text-emerald-700 bg-emerald-50 border-emerald-200';
               const IconComponent = expense.type === 'loan' 
-                ? Wallet 
+                ? (expense.loanType === LoanType.BANK 
+                    ? Banknote 
+                    : expense.loanType === LoanType.APP 
+                    ? Smartphone 
+                    : Wallet)
                 : expense.type === 'creditCard' 
                 ? CreditCardIcon 
                 : Home;
+              
+              const iconBgClass = expense.type === 'loan'
+                ? (expense.loanType === LoanType.BANK
+                    ? 'bg-blue-100 text-blue-600'
+                    : expense.loanType === LoanType.APP
+                    ? 'bg-green-100 text-green-600'
+                    : 'bg-purple-100 text-purple-600')
+                : expense.type === 'creditCard'
+                ? 'bg-indigo-100 text-indigo-600'
+                : 'bg-purple-100 text-purple-600';
               
               return (
                 <div
@@ -938,18 +1041,25 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className={`flex-shrink-0 p-2 rounded-lg ${
-                      expense.type === 'loan' 
-                        ? 'bg-blue-100 text-blue-600'
-                        : expense.type === 'creditCard'
-                        ? 'bg-indigo-100 text-indigo-600'
-                        : 'bg-purple-100 text-purple-600'
-                    }`}>
+                    <div className={`flex-shrink-0 p-2 rounded-lg ${iconBgClass}`}>
                       <IconComponent size={16} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-slate-900 truncate">{expense.name}</p>
+                        {expense.type === 'loan' && expense.loanType && (
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${
+                            expense.loanType === LoanType.BANK
+                              ? 'bg-blue-100 text-blue-700'
+                              : expense.loanType === LoanType.APP
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-purple-100 text-purple-700'
+                          }`}>
+                            {expense.loanType === LoanType.BANK ? 'Ngân hàng' : 
+                             expense.loanType === LoanType.APP ? 'App' : 
+                             'Người thân'}
+                          </span>
+                        )}
                         {isOverdue && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium whitespace-nowrap">
                             Quá hạn
@@ -1014,6 +1124,34 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             <p className="text-sm text-slate-500 mb-1">Còn lại</p>
             <h3 className="text-2xl font-bold text-rose-600">
               <Amount value={stats.bankRemaining} id="bank-remaining" />
+            </h3>
+          </div>
+        </div>
+      </div>
+
+      {/* Thống kê App */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <h4 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <Smartphone className="text-green-600" size={20} />
+          App
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <p className="text-sm text-slate-500 mb-1">Tổng tiền gốc</p>
+            <h3 className="text-2xl font-bold text-slate-900">
+              <Amount value={stats.appOriginal} id="app-original" />
+            </h3>
+          </div>
+          <div>
+            <p className="text-sm text-slate-500 mb-1">Đã thanh toán</p>
+            <h3 className="text-2xl font-bold text-emerald-600">
+              <Amount value={stats.appPaid} id="app-paid" />
+            </h3>
+          </div>
+          <div>
+            <p className="text-sm text-slate-500 mb-1">Còn lại</p>
+            <h3 className="text-2xl font-bold text-rose-600">
+              <Amount value={stats.appRemaining} id="app-remaining" />
             </h3>
           </div>
         </div>
@@ -1095,7 +1233,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                     iconType="line"
                   />
                   {loans
-                    .filter(l => l.type === LoanType.BANK)
+                    .filter(l => l.type === LoanType.BANK || l.type === LoanType.APP)
                     .map((loan, index) => {
                       const colors = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
                       const color = colors[index % colors.length];

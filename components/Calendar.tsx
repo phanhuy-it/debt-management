@@ -77,9 +77,9 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
       const date = new Date(currentYear, currentMonth, day);
       const isToday = date.getTime() === today.getTime();
       
-      // Tìm các khoản vay đến hạn vào ngày này (chỉ tính Bank loans)
+      // Tìm các khoản vay đến hạn vào ngày này (chỉ tính Bank và App loans)
       const dueLoans = loans.filter(loan => 
-        loan.type === LoanType.BANK && 
+        (loan.type === LoanType.BANK || loan.type === LoanType.APP) && 
         loan.status === 'ACTIVE' &&
         loan.monthlyDueDate === day
       );
@@ -140,7 +140,7 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
   // Tính tổng tiền đến hạn trong tháng
   const totalDueThisMonth = useMemo(() => {
     const loanAmount = loans
-      .filter(loan => loan.type === LoanType.BANK && loan.status === 'ACTIVE')
+      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.status === 'ACTIVE')
       .reduce((sum, loan) => sum + loan.monthlyPayment, 0);
     
     const cardAmount = creditCards
@@ -166,7 +166,7 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
 
     const loanAmount = loans
       .filter(loan => 
-        loan.type === LoanType.BANK && 
+        (loan.type === LoanType.BANK || loan.type === LoanType.APP) && 
         loan.status === 'ACTIVE' &&
         loan.monthlyDueDate >= weekStart && 
         loan.monthlyDueDate <= weekEnd &&
@@ -234,7 +234,7 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
           <p className="text-sm text-slate-500 mb-1">Số khoản đến hạn</p>
           <h3 className="text-2xl font-bold text-purple-600">
-            {loans.filter(l => l.type === LoanType.BANK && l.status === 'ACTIVE').length + creditCards.filter(c => c.status === 'ACTIVE').length + fixedExpenses.filter(e => e.status === 'ACTIVE').length}
+            {loans.filter(l => (l.type === LoanType.BANK || l.type === LoanType.APP) && l.status === 'ACTIVE').length + creditCards.filter(c => c.status === 'ACTIVE').length + fixedExpenses.filter(e => e.status === 'ACTIVE').length}
           </h3>
         </div>
       </div>

@@ -24,6 +24,7 @@ export interface LoanRow {
   status: string;
   notes: string | null;
   payments: Payment[];
+  interest_only: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -123,7 +124,7 @@ export const loanRowToLoan = (row: LoanRow): Loan => ({
   id: row.id,
   name: row.name,
   provider: row.provider,
-  type: row.type as 'BANK' | 'PERSONAL',
+  type: row.type as 'BANK' | 'APP' | 'PERSONAL',
   originalAmount: Number(row.original_amount),
   monthlyDueDate: row.monthly_due_date || 0,
   monthlyPayment: Number(row.monthly_payment),
@@ -131,7 +132,8 @@ export const loanRowToLoan = (row: LoanRow): Loan => ({
   termMonths: row.term_months,
   status: row.status as 'ACTIVE' | 'COMPLETED',
   notes: row.notes || undefined,
-  payments: Array.isArray(row.payments) ? row.payments : []
+  payments: Array.isArray(row.payments) ? row.payments : [],
+  interestOnly: row.interest_only || undefined
 });
 
 export const creditCardRowToCreditCard = (row: CreditCardRow): CreditCard => ({
@@ -204,7 +206,8 @@ export const loanToLoanRow = (loan: Loan): Partial<LoanRow> => ({
   term_months: loan.termMonths,
   status: loan.status,
   notes: loan.notes || null,
-  payments: loan.payments || []
+  payments: loan.payments || [],
+  interest_only: loan.interestOnly || null
 });
 
 export const creditCardToCreditCardRow = (card: CreditCard): Partial<CreditCardRow> => ({

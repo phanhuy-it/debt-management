@@ -617,7 +617,7 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
                               {isBorrow ? (
                                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Chi tiêu</span>
                               ) : (
-                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded">Thanh toán</span>
+                                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded inline-block text-center">Thanh toán</span>
                               )}
                             </td>
                             <td className={`px-4 py-2 text-right font-medium ${isBorrow ? 'text-blue-600' : 'text-emerald-600'}`}>

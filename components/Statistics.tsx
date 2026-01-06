@@ -97,7 +97,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
     let totalLoanPayments = 0;
     const loanPayments: Payment[] = [];
     loans
-      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0)
+      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0)
       .forEach(loan => {
         // Kiểm tra xem khoản vay có đang active trong tháng này không
         if (isLoanActiveInMonth(loan, year, month)) {
@@ -196,7 +196,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
       // Khoản vay ngân hàng - tính theo monthlyPayment cho tất cả khoản vay active trong tháng
       let loanExpenses = 0;
       loans
-        .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0)
+        .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0)
         .forEach(loan => {
           // Tính monthlyPayment cho tất cả các khoản vay active trong tháng
           if (isLoanActiveInMonth(loan, year, month)) {
@@ -439,7 +439,7 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
                 <h4 className="text-sm font-semibold text-slate-600 mb-2">Khoản vay</h4>
                 <div className="space-y-2">
                   {loans
-                    .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0)
+                    .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0)
                     .map(loan => {
                       // Kiểm tra xem khoản vay có đang active trong tháng này không
                       if (!isLoanActiveInMonth(loan, selectedMonth.getFullYear(), selectedMonth.getMonth())) {
