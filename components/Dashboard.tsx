@@ -256,6 +256,53 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     return unpaidExpenses.reduce((sum, expense) => sum + expense.amount, 0);
   }, [unpaidExpenses]);
 
+  // Tính tổng số tiền quá hạn
+  const totalOverdue = useMemo(() => {
+    const now = new Date();
+    const currentDay = now.getDate();
+    
+    return unpaidExpenses.reduce((sum, expense) => {
+      // Chỉ tính các khoản không phải tháng kế tiếp
+      if (expense.isNextMonth) return sum;
+      
+      // Tính số ngày quá hạn
+      const dayDiff = expense.dueDate - currentDay;
+      
+      // Nếu quá hạn (dayDiff < 0), cộng vào tổng
+      if (dayDiff < 0) {
+        return sum + expense.amount;
+      }
+      
+      return sum;
+    }, 0);
+  }, [unpaidExpenses]);
+
+  // Tính tổng số tiền đến hạn hôm nay
+  const totalDueToday = useMemo(() => {
+    const now = new Date();
+    const currentDay = now.getDate();
+    
+    return unpaidExpenses.reduce((sum, expense) => {
+      // Chỉ tính các khoản không phải tháng kế tiếp
+      if (expense.isNextMonth) return sum;
+      
+      // Tính số ngày còn lại
+      const dayDiff = expense.dueDate - currentDay;
+      
+      // Nếu đến hạn hôm nay (dayDiff === 0), cộng vào tổng
+      if (dayDiff === 0) {
+        return sum + expense.amount;
+      }
+      
+      return sum;
+    }, 0);
+  }, [unpaidExpenses]);
+
+  // Tính tổng số tiền cần phải thanh toán hôm nay (bao gồm cả quá hạn và đến hạn hôm nay)
+  const totalDueTodayIncludingOverdue = useMemo(() => {
+    return totalOverdue + totalDueToday;
+  }, [totalOverdue, totalDueToday]);
+
   // Tính tổng thu nhập hàng tháng (tính tất cả các khoản sẽ thu trong tháng hiện tại)
   const totalMonthlyIncome = useMemo(() => {
     const now = new Date();
@@ -974,11 +1021,37 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
               <AlertCircle className="text-orange-500" size={20} />
               Các khoản thanh toán sắp tới
             </h4>
-            <div className="text-right">
-              <p className="text-xs text-slate-500">Tổng cộng</p>
-              <p className="text-xl font-bold text-rose-600">
-                <Amount value={totalUnpaid} id="dashboard-unpaid-total" />
-              </p>
+            <div className="flex items-center gap-6">
+              {totalDueTodayIncludingOverdue > 0 && (
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Cần thanh toán hôm nay</p>
+                  <p className="text-xl font-bold text-red-700">
+                    <Amount value={totalDueTodayIncludingOverdue} id="dashboard-due-today-including-overdue" />
+                  </p>
+                </div>
+              )}
+              {totalOverdue > 0 && (
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Số tiền quá hạn</p>
+                  <p className="text-xl font-bold text-red-600">
+                    <Amount value={totalOverdue} id="dashboard-overdue-total" />
+                  </p>
+                </div>
+              )}
+              {totalDueToday > 0 && (
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Đến hạn hôm nay</p>
+                  <p className="text-xl font-bold text-amber-600">
+                    <Amount value={totalDueToday} id="dashboard-due-today-total" />
+                  </p>
+                </div>
+              )}
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Tổng cộng</p>
+                <p className="text-xl font-bold text-rose-600">
+                  <Amount value={totalUnpaid} id="dashboard-unpaid-total" />
+                </p>
+              </div>
             </div>
           </div>
           <div className="space-y-2">
