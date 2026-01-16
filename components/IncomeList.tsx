@@ -11,6 +11,7 @@ interface IncomeListProps {
   onAddPayment: (incomeId: string, payment: Payment) => void;
   onRemovePayment: (incomeId: string, paymentIds: string[]) => void;
   onUpdateIncome: (id: string, updatedIncome: Partial<Income>) => void;
+  onAddIncome: (income: Income) => void;
 }
 
 type SortOption = 'receivedDate' | 'amount' | 'name';
@@ -21,7 +22,8 @@ const IncomeList: React.FC<IncomeListProps> = ({
   onDeleteIncome, 
   onAddPayment,
   onRemovePayment,
-  onUpdateIncome
+  onUpdateIncome,
+  onAddIncome
 }) => {
   const [selectedIncome, setSelectedIncome] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
@@ -30,7 +32,6 @@ const IncomeList: React.FC<IncomeListProps> = ({
   const [sortBy, setSortBy] = useState<SortOption>('receivedDate');
   const [activeTab, setActiveTab] = useState<IncomeTab>('ACTIVE');
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
-  const [extraIncomeId, setExtraIncomeId] = useState<string>('');
   const [extraAmount, setExtraAmount] = useState('');
   const [extraNote, setExtraNote] = useState('');
   const [extraDate, setExtraDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
@@ -40,18 +41,6 @@ const IncomeList: React.FC<IncomeListProps> = ({
   const [editName, setEditName] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editReceivedDate, setEditReceivedDate] = useState<number>(1);
-
-  // Đồng bộ income mặc định cho thu nhập đột xuất khi danh sách thay đổi (chỉ tính ACTIVE)
-  React.useEffect(() => {
-    const activeIncomes = incomes.filter(i => i.status === LoanStatus.ACTIVE);
-    if (activeIncomes.length === 0) {
-      setExtraIncomeId('');
-    } else if (!extraIncomeId) {
-      setExtraIncomeId(activeIncomes[0].id);
-    } else if (!activeIncomes.find(i => i.id === extraIncomeId)) {
-      setExtraIncomeId(activeIncomes[0].id);
-    }
-  }, [incomes, extraIncomeId]);
 
   // Tổng hợp lịch sử thu nhập
   const deriveExtraName = (note?: string) => {
@@ -179,17 +168,27 @@ const IncomeList: React.FC<IncomeListProps> = ({
 
   const handleExtraIncomeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!extraIncomeId || !extraAmount || !extraSourceName.trim()) return;
+    if (!extraAmount || !extraSourceName.trim()) return;
 
     const sourceLabel = extraSourceName.trim();
-    const payment: Payment = {
-      id: `extra-${generateUUID()}`,
-      date: extraDate ? new Date(extraDate).toISOString() : new Date().toISOString(),
-      amount: parseFloat(extraAmount),
-      note: extraNote ? `${sourceLabel} - ${extraNote}` : `Thu nhập đột xuất: ${sourceLabel}`
+    
+    // Tạo một income mới cho thu nhập đột xuất
+    const newIncome: Income = {
+      id: generateUUID(),
+      name: sourceLabel,
+      amount: 0, // Thu nhập đột xuất không có số tiền cố định hàng tháng
+      receivedDate: new Date(extraDate).getDate() || new Date().getDate(),
+      payments: [{
+        id: generateUUID(),
+        date: extraDate ? new Date(extraDate).toISOString() : new Date().toISOString(),
+        amount: parseFloat(extraAmount),
+        note: extraNote || `Thu nhập đột xuất: ${sourceLabel}`
+      }],
+      status: LoanStatus.ACTIVE,
+      notes: extraNote || undefined
     };
 
-    onAddPayment(extraIncomeId, payment);
+    onAddIncome(newIncome);
     setExtraAmount('');
     setExtraNote('');
     setExtraDate(new Date().toISOString().split('T')[0]);
@@ -226,12 +225,12 @@ const IncomeList: React.FC<IncomeListProps> = ({
 
   // Lọc và sắp xếp thu nhập
   const sortedIncomes = useMemo(() => {
-    // Lọc theo tab hiện tại
-    let filtered = incomes;
+    // Lọc theo tab hiện tại và loại bỏ thu nhập đột xuất (amount === 0)
+    let filtered = incomes.filter(i => i.amount > 0); // Chỉ hiển thị thu nhập cố định
     if (activeTab === 'ACTIVE') {
-      filtered = incomes.filter(i => i.status === LoanStatus.ACTIVE);
+      filtered = filtered.filter(i => i.status === LoanStatus.ACTIVE);
     } else if (activeTab === 'HISTORY') {
-      filtered = incomes.filter(i => i.status === LoanStatus.COMPLETED);
+      filtered = filtered.filter(i => i.status === LoanStatus.COMPLETED);
     }
     
     const sorted = [...filtered];
@@ -262,17 +261,18 @@ const IncomeList: React.FC<IncomeListProps> = ({
         if (selectedIncome) setSelectedIncome(null);
         if (editingIncome) setEditingIncome(null);
         if (showHistory) setShowHistory(null);
-        if (extraIncomeId) setExtraIncomeId('');
       }
     };
 
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [selectedIncome, editingIncome, showHistory, extraIncomeId]);
+  }, [selectedIncome, editingIncome, showHistory]);
 
   const renderIncomeRow = (income: Income) => {
     const isReceived = isCurrentMonthReceived(income);
     const datePassed = isReceivedDatePassed(income);
+    // Thu nhập đột xuất là những income có amount = 0 (không có số tiền cố định hàng tháng)
+    const isOneTimeIncome = income.amount === 0;
 
     return (
       <div key={income.id} className="bg-white border-b border-slate-100 hover:bg-slate-50 transition-colors">
@@ -280,30 +280,60 @@ const IncomeList: React.FC<IncomeListProps> = ({
         <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
           {/* Tên khoản thu nhập */}
           <div className="col-span-12 md:col-span-4 flex items-center gap-3">
-            <div className="flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-600">
+            <div className={`flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full ${
+              isOneTimeIncome ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'
+            }`}>
               <Wallet size={18} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="font-semibold text-slate-900 truncate">{income.name}</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="font-semibold text-slate-900 truncate">{income.name}</div>
+                {isOneTimeIncome && (
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium whitespace-nowrap">
+                    Đột xuất
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Số tiền */}
           <div className="col-span-6 md:col-span-2 text-right">
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Số tiền</div>
-            <div className="font-semibold text-emerald-600">
-              <Amount value={income.amount} id={`income-${income.id}-amount`} />
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">
+              {isOneTimeIncome ? 'Đã nhận' : 'Số tiền/tháng'}
             </div>
+            {isOneTimeIncome ? (
+              <div className="font-semibold text-emerald-600">
+                <Amount 
+                  value={income.payments.reduce((sum, p) => sum + p.amount, 0)} 
+                  id={`income-${income.id}-total`} 
+                />
+              </div>
+            ) : (
+              <div className="font-semibold text-emerald-600">
+                <Amount value={income.amount} id={`income-${income.id}-amount`} />
+              </div>
+            )}
           </div>
 
           {/* Ngày nhận tiền */}
           <div className="col-span-6 md:col-span-2 text-right">
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Ngày nhận</div>
-            <div className="font-semibold text-slate-900">Ngày {income.receivedDate}</div>
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">
+              {isOneTimeIncome ? 'Ngày nhận' : 'Ngày nhận/tháng'}
+            </div>
+            {isOneTimeIncome ? (
+              <div className="font-semibold text-slate-900">
+                {income.payments.length > 0 
+                  ? new Date(income.payments[0].date).toLocaleDateString('vi-VN')
+                  : '-'}
+              </div>
+            ) : (
+              <div className="font-semibold text-slate-900">Ngày {income.receivedDate}</div>
+            )}
           </div>
 
-          {/* Trạng thái - chỉ hiển thị khi tab ACTIVE */}
-          {activeTab === 'ACTIVE' && (
+          {/* Trạng thái - chỉ hiển thị khi tab ACTIVE và không phải đột xuất */}
+          {activeTab === 'ACTIVE' && !isOneTimeIncome && (
             <div className="col-span-6 md:col-span-2 text-right">
               <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Trạng thái</div>
               <div className={`font-semibold ${isReceived ? 'text-emerald-600' : datePassed ? 'text-orange-600' : 'text-slate-600'}`}>
@@ -313,8 +343,8 @@ const IncomeList: React.FC<IncomeListProps> = ({
           )}
 
           {/* Actions */}
-          <div className={`col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1 ${activeTab === 'HISTORY' ? 'md:col-span-4' : ''}`}>
-            {activeTab === 'ACTIVE' && (
+          <div className={`col-span-6 md:col-span-2 flex flex-wrap items-center justify-end gap-1 ${activeTab === 'HISTORY' || isOneTimeIncome ? 'md:col-span-4' : ''}`}>
+            {activeTab === 'ACTIVE' && !isOneTimeIncome && (
               <>
                 <button
                   onClick={() => {
@@ -341,7 +371,7 @@ const IncomeList: React.FC<IncomeListProps> = ({
                         onAddPayment(income.id, newPayment);
                       }
                     } else {
-                      // Xóa payment cố định của tháng hiện tại (không xóa thu nhập đột xuất)
+                      // Xóa payment cố định của tháng hiện tại
                       const now = new Date();
                       const currentYear = now.getFullYear();
                       const currentMonth = now.getMonth();
@@ -419,30 +449,6 @@ const IncomeList: React.FC<IncomeListProps> = ({
               <Archive size={14} /> Lịch sử
             </button>
           </div>
-          
-          {/* Sort Controls */}
-          {activeTab === 'ACTIVE' && (
-            <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-              <button 
-                onClick={() => setSortBy('receivedDate')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'receivedDate' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <Calendar size={14} /> Ngày nhận
-              </button>
-              <button 
-                onClick={() => setSortBy('amount')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'amount' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <DollarSign size={14} /> Số tiền cao nhất
-              </button>
-              <button 
-                onClick={() => setSortBy('name')}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'name' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                <TrendingUp size={14} /> Tên A-Z
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -468,18 +474,74 @@ const IncomeList: React.FC<IncomeListProps> = ({
         </div>
       </div>
 
+      {activeTab === 'ACTIVE' && incomes.filter(i => i.status === LoanStatus.ACTIVE && i.amount > 0).length === 0 && (
+        <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
+          <p className="text-slate-500">Bạn chưa có nguồn thu nhập đang hoạt động nào.</p>
+        </div>
+      )}
+      
+      {activeTab === 'HISTORY' && incomes.filter(i => i.status === LoanStatus.COMPLETED && i.amount > 0).length === 0 && (
+        <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
+          <p className="text-slate-500">Chưa có khoản thu nhập nào đã kết thúc.</p>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-0">
+        {/* Sort Controls */}
+        {activeTab === 'ACTIVE' && (
+          <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+            <button 
+              onClick={() => setSortBy('receivedDate')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'receivedDate' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Calendar size={14} /> Ngày nhận
+            </button>
+            <button 
+              onClick={() => setSortBy('amount')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'amount' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <DollarSign size={14} /> Số tiền cao nhất
+            </button>
+            <button 
+              onClick={() => setSortBy('name')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'name' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <TrendingUp size={14} /> Tên A-Z
+            </button>
+          </div>
+        )}
+      </div>
+      {sortedIncomes.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden !mt-2">
+          {/* Header */}
+          <div className="px-6 py-3 bg-slate-50 border-b border-slate-200">
+            <div className="grid grid-cols-12 gap-4">
+              <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản thu nhập cố định</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Số tiền</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Ngày nhận</div>
+              {activeTab === 'ACTIVE' && (
+                <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Trạng thái</div>
+              )}
+              <div className={`col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider ${activeTab === 'HISTORY' ? 'md:col-span-4' : ''}`}>Thao tác</div>
+            </div>
+          </div>
+          {/* Body */}
+          <div className="divide-y divide-slate-100">
+            {sortedIncomes.map(renderIncomeRow)}
+          </div>
+        </div>
+      )}
+
       {/* Thêm thu nhập đột xuất - chỉ hiển thị khi tab ACTIVE */}
       {activeTab === 'ACTIVE' && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-800">Thêm thu nhập đột xuất</h3>
-            {incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0 && (
-              <span className="text-xs text-rose-500">Vui lòng thêm nguồn thu nhập cố định trước</span>
-            )}
+            <span className="text-xs text-slate-500">Tạo khoản thu nhập mới riêng biệt</span>
           </div>
         <form className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end" onSubmit={handleExtraIncomeSubmit}>
           <div className="md:col-span-1">
-            <label className="block text-xs font-medium text-slate-600 mb-1">Tên khoản thu nhập</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Tên khoản thu nhập *</label>
             <input
               type="text"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
@@ -487,11 +549,10 @@ const IncomeList: React.FC<IncomeListProps> = ({
               value={extraSourceName}
               onChange={e => setExtraSourceName(e.target.value)}
               required
-              disabled={incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0}
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Số tiền</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Số tiền *</label>
             <input
               type="number"
               min="0"
@@ -500,7 +561,6 @@ const IncomeList: React.FC<IncomeListProps> = ({
               value={extraAmount}
               onChange={e => setExtraAmount(e.target.value)}
               required
-              disabled={incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0}
             />
           </div>
           <div>
@@ -510,7 +570,6 @@ const IncomeList: React.FC<IncomeListProps> = ({
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
               value={extraDate}
               onChange={e => setExtraDate(e.target.value)}
-              disabled={incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0}
             />
           </div>
           <div>
@@ -521,52 +580,72 @@ const IncomeList: React.FC<IncomeListProps> = ({
               placeholder="VD: Thưởng, freelance..."
               value={extraNote}
               onChange={e => setExtraNote(e.target.value)}
-              disabled={incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0}
             />
           </div>
           <div className="md:col-span-4 flex justify-end">
             <button
               type="submit"
-              className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-60"
-              disabled={incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0}
+              className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 font-medium"
             >
-              Thêm vào lịch sử
+              Xác nhận thu nhập
             </button>
           </div>
         </form>
         </div>
       )}
 
-      {activeTab === 'ACTIVE' && incomes.filter(i => i.status === LoanStatus.ACTIVE).length === 0 && (
-        <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
-          <p className="text-slate-500">Bạn chưa có nguồn thu nhập đang hoạt động nào.</p>
+      {/* Lịch sử thu nhập */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-800">Lịch sử thu nhập</h3>
+          <span className="text-xs text-slate-500">Sắp xếp mới nhất → cũ nhất</span>
         </div>
-      )}
-      
-      {activeTab === 'HISTORY' && incomes.filter(i => i.status === LoanStatus.COMPLETED).length === 0 && (
-        <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
-          <p className="text-slate-500">Chưa có khoản thu nhập nào đã kết thúc.</p>
-        </div>
-      )}
-
-      {sortedIncomes.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
-            <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản thu nhập</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Số tiền</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Ngày nhận</div>
-            {activeTab === 'ACTIVE' && (
-              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Trạng thái</div>
-            )}
-            <div className={`col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider ${activeTab === 'HISTORY' ? 'md:col-span-4' : ''}`}>Thao tác</div>
+        {allPaymentsSorted.length === 0 ? (
+          <div className="p-6 text-slate-500 text-sm">Chưa có khoản thu nào trong lịch sử.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Ngày</th>
+                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Khoản thu nhập</th>
+                  <th className="px-4 py-2 text-right font-semibold text-slate-600">Số tiền</th>
+                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Ghi chú</th>
+                  <th className="px-3 py-2 text-center font-semibold text-slate-600 w-12"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {allPaymentsSorted.map(p => (
+                  <tr key={p.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                      {new Date(p.date).toLocaleDateString('vi-VN')}
+                    </td>
+                    <td className="px-4 py-2 text-slate-700">{p.incomeName}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
+                      <Amount value={p.amount} id={`income-history-${p.id}`} />
+                    </td>
+                    <td className="px-4 py-2 text-slate-500 max-w-[240px] truncate">{p.note || '-'}</td>
+                    <td className="px-3 py-2 text-center">
+                      <button
+                        className="p-1.5 rounded hover:bg-red-50 text-slate-500 hover:text-red-600 transition-colors"
+                        title="Xóa dòng lịch sử này"
+                        onClick={() => {
+                          if (!p.incomeId) return;
+                          if (window.confirm('Xóa dòng lịch sử thu nhập này?')) {
+                            onRemovePayment(p.incomeId, [p.id]);
+                          }
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {/* Body */}
-          <div className="divide-y divide-slate-100">
-            {sortedIncomes.map(renderIncomeRow)}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Thống kê theo tháng */}
       {monthlyTotals.length > 0 && (
@@ -628,59 +707,6 @@ const IncomeList: React.FC<IncomeListProps> = ({
           </div>
         </div>
       )}
-
-      {/* Lịch sử thu nhập */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-800">Lịch sử thu nhập</h3>
-          <span className="text-xs text-slate-500">Sắp xếp mới nhất → cũ nhất</span>
-        </div>
-        {allPaymentsSorted.length === 0 ? (
-          <div className="p-6 text-slate-500 text-sm">Chưa có khoản thu nào trong lịch sử.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Ngày</th>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Khoản thu nhập</th>
-                  <th className="px-4 py-2 text-right font-semibold text-slate-600">Số tiền</th>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Ghi chú</th>
-                  <th className="px-3 py-2 text-center font-semibold text-slate-600 w-12"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {allPaymentsSorted.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
-                      {new Date(p.date).toLocaleDateString('vi-VN')}
-                    </td>
-                    <td className="px-4 py-2 text-slate-700">{p.incomeName}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
-                      <Amount value={p.amount} id={`income-history-${p.id}`} />
-                    </td>
-                    <td className="px-4 py-2 text-slate-500 max-w-[240px] truncate">{p.note || '-'}</td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        className="p-1.5 rounded hover:bg-red-50 text-slate-500 hover:text-red-600 transition-colors"
-                        title="Xóa dòng lịch sử này"
-                        onClick={() => {
-                          if (!p.incomeId) return;
-                          if (window.confirm('Xóa dòng lịch sử thu nhập này?')) {
-                            onRemovePayment(p.incomeId, [p.id]);
-                          }
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
       {/* Payment Modal */}
       {selectedIncome && (
