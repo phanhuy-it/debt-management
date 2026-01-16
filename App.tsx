@@ -13,14 +13,17 @@ import InvestmentList from './components/InvestmentList';
 import PaymentRoadmap from './components/PaymentRoadmap';
 import Statistics from './components/Statistics';
 import Login from './components/Login';
-import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, saveInvestmentsToServer, loadInvestmentAccountsFromServer, saveInvestmentAccountsToServer, loadInvestmentTransactionsFromServer, saveInvestmentTransactionsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
-import { generateUUID, migrateIdToUUID } from './utils/uuid';
+import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, loadInvestmentAccountsFromServer, saveInvestmentAccountsToServer, loadInvestmentTransactionsFromServer, saveInvestmentTransactionsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import { generateUUID } from './utils/uuid';
 import { AmountVisibilityProvider, useAmountVisibility } from './components/AmountVisibility';
+import { useDataManagement } from './hooks/useDataManagement';
+import { useModals } from './hooks/useModals';
+import { formatCurrency } from './utils/constants';
+import { migrateInvestmentsToNewFormat } from './utils/investmentMigration';
+import AddLoanModal from './components/modals/AddLoanModal';
 
-// Utility for formatting currency
-export const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-};
+// Re-export for backward compatibility
+export { formatCurrency };
 
 // Initial tabs
 type Tab = 'DASHBOARD' | 'LOANS' | 'LENDINGS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'INVESTMENTS' | 'CALENDAR' | 'ROADMAP' | 'STATISTICS';
@@ -48,20 +51,41 @@ interface AppContentProps {
 function AppContent({ handleLogout }: AppContentProps) {
   const location = useLocation();
   const activeTab = getTabFromPath(location.pathname);
-  const [loans, setLoans] = useState<Loan[]>([]);
-  const [creditCards, setCreditCards] = useState<CreditCardType[]>([]);
-  const [fixedExpenses, setFixedExpenses] = useState<FixedExpense[]>([]);
-  const [incomes, setIncomes] = useState<Income[]>([]);
-  const [lendings, setLendings] = useState<Lending[]>([]);
-  const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
-  const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showAddCardModal, setShowAddCardModal] = useState(false);
-  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
-  const [showAddIncomeModal, setShowAddIncomeModal] = useState(false);
-  const [showAddLendingModal, setShowAddLendingModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
+  
+  // Use custom hooks for data and modal management
+  const {
+    loans,
+    creditCards,
+    fixedExpenses,
+    incomes,
+    lendings,
+    investmentAccounts,
+    investmentTransactions,
+    isLoading,
+    setLoans,
+    setCreditCards,
+    setFixedExpenses,
+    setIncomes,
+    setLendings,
+    setInvestmentAccounts,
+    setInvestmentTransactions
+  } = useDataManagement();
+  
+  const {
+    showAddModal,
+    showAddCardModal,
+    showAddExpenseModal,
+    showAddIncomeModal,
+    showAddLendingModal,
+    showImportModal,
+    setShowAddModal,
+    setShowAddCardModal,
+    setShowAddExpenseModal,
+    setShowAddIncomeModal,
+    setShowAddLendingModal,
+    setShowImportModal
+  } = useModals();
+  
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { globalHidden, toggleGlobal } = useAmountVisibility();
@@ -87,98 +111,28 @@ function AppContent({ handleLogout }: AppContentProps) {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Load data from server on mount
+  // Handle investment migration from old format
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        const [loadedLoans, loadedCards, loadedExpenses, loadedIncomes, loadedLendings, loadedAccounts, loadedTransactions] = await Promise.all([
-          loadLoansFromServer(),
-          loadCreditCardsFromServer(),
-          loadFixedExpensesFromServer(),
-          loadIncomeFromServer(),
-          loadLendingsFromServer(),
-          loadInvestmentAccountsFromServer(),
-          loadInvestmentTransactionsFromServer()
-        ]);
-        setLoans(loadedLoans);
-        setCreditCards(loadedCards);
-        setFixedExpenses(loadedExpenses);
-        setIncomes(loadedIncomes);
-        setLendings(loadedLendings);
-        
-        // Use new structure if available, otherwise try to migrate from old
-        if (loadedAccounts.length > 0 || loadedTransactions.length > 0) {
-          setInvestmentAccounts(loadedAccounts);
-          setInvestmentTransactions(loadedTransactions);
-        } else {
-          // Fallback: try to load old format and migrate
+    if (!isLoading && investmentAccounts.length === 0 && investmentTransactions.length === 0) {
+      const migrateInvestments = async () => {
+        try {
           const loadedInvestments = await loadInvestmentsFromServer();
           if (loadedInvestments && loadedInvestments.length > 0) {
-            const accountsMap = new Map<string, InvestmentAccount>();
-            const transactions: InvestmentTransaction[] = [];
-            
-            loadedInvestments.forEach(inv => {
-              // Find or create account
-              let account = Array.from(accountsMap.values()).find(acc => acc.name === inv.name);
-              if (!account) {
-                account = {
-                  id: generateUUID(),
-                  name: inv.name,
-                  status: inv.status,
-                  notes: undefined
-                };
-                accountsMap.set(account.id, account);
-              }
-              
-              // Create transaction
-              transactions.push({
-                id: inv.id,
-                accountId: account.id,
-                type: inv.type,
-                amount: inv.amount,
-                date: inv.date,
-                note: inv.note,
-                status: inv.status
-              });
-            });
-            
-            const migratedAccounts = Array.from(accountsMap.values());
-            setInvestmentAccounts(migratedAccounts);
+            const { accounts, transactions } = migrateInvestmentsToNewFormat(loadedInvestments);
+            setInvestmentAccounts(accounts);
             setInvestmentTransactions(transactions);
             
             // Save migrated data to new structure
-            await saveInvestmentAccountsToServer(migratedAccounts);
+            await saveInvestmentAccountsToServer(accounts);
             await saveInvestmentTransactionsToServer(transactions);
-          } else {
-            setInvestmentAccounts([]);
-            setInvestmentTransactions([]);
           }
+        } catch (error) {
+          console.error('Lỗi khi migrate investments:', error);
         }
-      } catch (error) {
-        console.error('Lỗi khi tải dữ liệu:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadData();
-  }, []);
-
-  // Form State
-  const [newName, setNewName] = useState('');
-  const [newProvider, setNewProvider] = useState('');
-  const [newType, setNewType] = useState<LoanType>(LoanType.BANK);
-  
-  // Bank specific fields
-  const [newMonthlyDueDate, setNewMonthlyDueDate] = useState<number>(1);
-  const [newMonthlyPayment, setNewMonthlyPayment] = useState('');
-  const [newTerm, setNewTerm] = useState('');
-  const [newPaidTerms, setNewPaidTerms] = useState('');
-  const [newInterestOnly, setNewInterestOnly] = useState(false);
-
-  // Personal specific fields
-  const [newAmount, setNewAmount] = useState('');
-  const [newStartDate, setNewStartDate] = useState('');
+      };
+      migrateInvestments();
+    }
+  }, [isLoading, investmentAccounts.length, investmentTransactions.length, setInvestmentAccounts, setInvestmentTransactions]);
 
   // Credit Card form fields
   const [cardName, setCardName] = useState('');
@@ -206,120 +160,41 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [lendingMonthlyDueDate, setLendingMonthlyDueDate] = useState<number>(1);
   const [lendingTermMonths, setLendingTermMonths] = useState('');
 
-  // Save data to server whenever loans or creditCards change
-  useEffect(() => {
-    if (!isLoading && loans.length >= 0) {
-      saveLoansToServer(loans).catch(error => {
-        console.error('Lỗi khi lưu dữ liệu:', error);
-      });
-    }
-  }, [loans, isLoading]);
+  // Data saving is now handled by useDataManagement hook
 
-  useEffect(() => {
-    if (!isLoading && creditCards.length >= 0) {
-      saveCreditCardsToServer(creditCards).catch(error => {
-        console.error('Lỗi khi lưu dữ liệu thẻ tín dụng:', error);
-      });
-    }
-  }, [creditCards, isLoading]);
+  // Modal management is now handled by useModals hook
 
-  useEffect(() => {
-    if (!isLoading && fixedExpenses.length >= 0) {
-      saveFixedExpensesToServer(fixedExpenses).catch(error => {
-        console.error('Lỗi khi lưu dữ liệu chi tiêu cố định:', error);
-      });
-    }
-  }, [fixedExpenses, isLoading]);
-
-  useEffect(() => {
-    if (!isLoading && incomes.length >= 0) {
-      saveIncomeToServer(incomes).catch(error => {
-        console.error('Lỗi khi lưu dữ liệu thu nhập:', error);
-      });
-    }
-  }, [incomes, isLoading]);
-
-  useEffect(() => {
-    if (!isLoading && lendings.length >= 0) {
-      saveLendingsToServer(lendings).catch(error => {
-        console.error('Lỗi khi lưu dữ liệu cho vay:', error);
-      });
-    }
-  }, [lendings, isLoading]);
-
-  useEffect(() => {
-    if (!isLoading) {
-      // Save using new structure
-      saveInvestmentAccountsToServer(investmentAccounts).catch(error => {
-        console.error('Lỗi khi lưu investment accounts:', error);
-      });
-      saveInvestmentTransactionsToServer(investmentTransactions).catch(error => {
-        console.error('Lỗi khi lưu investment transactions:', error);
-      });
-    }
-  }, [investmentAccounts, investmentTransactions, isLoading]);
-
-  useEffect(() => {
-    // Set default date to today when opening modal
-    if (showAddModal && !newStartDate) {
-      setNewStartDate(new Date().toISOString().split('T')[0]);
-    }
-  }, [showAddModal]);
-
-  // Handle ESC key to close all modals
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (showAddModal) setShowAddModal(false);
-        if (showAddCardModal) setShowAddCardModal(false);
-        if (showAddExpenseModal) setShowAddExpenseModal(false);
-        if (showAddIncomeModal) setShowAddIncomeModal(false);
-        if (showAddLendingModal) setShowAddLendingModal(false);
-        if (showImportModal) setShowImportModal(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, [showAddModal, showAddCardModal, showAddExpenseModal, showAddIncomeModal, showAddLendingModal, showImportModal]);
-
-  useEffect(() => {
-    // Set default date to today when opening lending modal
-    if (showAddLendingModal && !lendingStartDate) {
-      setLendingStartDate(new Date().toISOString().split('T')[0]);
-    }
-  }, [showAddLendingModal]);
-
-  const handleAddLoan = (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleAddLoan = (formData: {
+    name: string;
+    provider: string;
+    type: LoanType;
+    monthlyDueDate: number;
+    monthlyPayment: number;
+    term: number;
+    paidTerms: number;
+    amount: number;
+    startDate: string;
+    interestOnly: boolean;
+  }) => {
     let loanAmount = 0;
-    let monthlyPayment = 0;
-    let term = 0;
+    let monthlyPayment = formData.monthlyPayment;
+    let term = formData.term;
     let payments: Payment[] = [];
-    let monthlyDueDate = 0;
+    let monthlyDueDate = formData.monthlyDueDate;
     
     // Determine name logic: explicit for bank/app, default for personal if input hidden
-    const loanName = (newType === LoanType.BANK || newType === LoanType.APP) ? newName : 'Tiền mặt';
+    const loanName = (formData.type === LoanType.BANK || formData.type === LoanType.APP) ? formData.name : 'Tiền mặt';
 
-    if (newType === LoanType.BANK || newType === LoanType.APP) {
-      monthlyPayment = parseFloat(newMonthlyPayment) || 0;
-      term = parseInt(newTerm) || 0;
-      const paidTerms = parseInt(newPaidTerms) || 0;
+    if (formData.type === LoanType.BANK || formData.type === LoanType.APP) {
+      const paidTerms = formData.paidTerms;
       
-      if (!newInterestOnly && paidTerms > term) {
+      if (!formData.interestOnly && paidTerms > term) {
         alert("Số kỳ đã trả không thể lớn hơn tổng số kỳ vay!");
         return;
       }
 
-      // Nếu chỉ trả lãi, cần nhập số tiền gốc riêng (sẽ thêm input sau)
-      // Tạm thời: nếu interestOnly thì loanAmount = monthlyPayment * 500 (tạm tính)
-      // Hoặc có thể yêu cầu người dùng nhập số tiền gốc riêng
-      if (newInterestOnly) {
-        // Với interestOnly, monthlyPayment là tiền lãi, term có thể bỏ qua
-        // Số tiền gốc sẽ được nhập riêng - tạm thời lấy từ monthlyPayment * 500 để có số hợp lý
-        // (sẽ thêm input riêng cho số tiền gốc sau)
-        loanAmount = parseFloat(newAmount) || 0;
+      if (formData.interestOnly) {
+        loanAmount = formData.amount;
         if (loanAmount === 0) {
           alert("Vui lòng nhập số tiền gốc cho khoản vay chỉ trả lãi!");
           return;
@@ -327,13 +202,11 @@ function AppContent({ handleLogout }: AppContentProps) {
       } else {
         loanAmount = monthlyPayment * term;
       }
-      monthlyDueDate = newMonthlyDueDate;
 
       // Create initial payment record if terms are already paid
-      // Đặt date trong quá khứ để không bị coi là đã trả tháng hiện tại
       if (paidTerms > 0) {
         const now = new Date();
-        const pastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); // Ngày 1 của tháng trước
+        const pastDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         payments.push({
           id: generateUUID(),
           date: pastDate.toISOString(),
@@ -343,43 +216,28 @@ function AppContent({ handleLogout }: AppContentProps) {
       }
     } else {
       // Personal Loan Logic
-      loanAmount = parseFloat(newAmount) || 0;
-      monthlyPayment = 0; // Not applicable or variable
-      term = 0; // Not applicable
-      monthlyDueDate = 0; // Not applicable
+      loanAmount = formData.amount;
+      monthlyPayment = 0;
+      term = 0;
+      monthlyDueDate = 0;
     }
 
     const loan: Loan = {
       id: generateUUID(),
       name: loanName,
-      provider: newProvider,
-      type: newType,
+      provider: formData.provider,
+      type: formData.type,
       originalAmount: loanAmount,
       monthlyDueDate: monthlyDueDate,
       monthlyPayment: monthlyPayment,
-      startDate: newType === LoanType.PERSONAL && newStartDate ? newStartDate : new Date().toISOString(),
+      startDate: formData.type === LoanType.PERSONAL && formData.startDate ? formData.startDate : new Date().toISOString(),
       termMonths: term,
       payments: payments,
       status: LoanStatus.ACTIVE,
-      interestOnly: (newType === LoanType.BANK || newType === LoanType.APP) ? newInterestOnly : undefined
+      interestOnly: (formData.type === LoanType.BANK || formData.type === LoanType.APP) ? formData.interestOnly : undefined
     };
 
     setLoans([...loans, loan]);
-    setShowAddModal(false);
-    resetForm();
-  };
-
-  const resetForm = () => {
-    setNewName('');
-    setNewProvider('');
-    setNewType(LoanType.BANK);
-    setNewMonthlyDueDate(1);
-    setNewMonthlyPayment('');
-    setNewTerm('');
-    setNewPaidTerms('');
-    setNewAmount('');
-    setNewStartDate(new Date().toISOString().split('T')[0]);
-    setNewInterestOnly(false);
   };
 
   const resetCardForm = () => {
@@ -854,8 +712,6 @@ function AppContent({ handleLogout }: AppContentProps) {
     }
   };
 
-  // Calculate total for preview (Bank only)
-  const previewBankTotal = (parseFloat(newMonthlyPayment) || 0) * (parseInt(newTerm) || 0);
 
   if (isLoading) {
     return (
@@ -1259,173 +1115,11 @@ function AppContent({ handleLogout }: AppContentProps) {
       </div>
 
       {/* Add Loan Modal */}
-      {showAddModal && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
-          onClick={() => setShowAddModal(false)}
-        >
-          <div 
-            className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h2 className="font-bold text-lg text-slate-800">Thêm khoản vay mới</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleAddLoan} className="p-6 space-y-4">
-              
-              <div className="bg-slate-100 p-1 rounded-lg flex gap-1 mb-4">
-                 <button
-                   type="button"
-                   onClick={() => setNewType(LoanType.BANK)}
-                   className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.BANK ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
-                 >
-                   Vay Ngân Hàng
-                 </button>
-                 <button
-                   type="button"
-                   onClick={() => setNewType(LoanType.APP)}
-                   className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.APP ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
-                 >
-                   Vay App
-                 </button>
-                 <button
-                   type="button"
-                   onClick={() => setNewType(LoanType.PERSONAL)}
-                   className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.PERSONAL ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
-                 >
-                   Vay Người Thân
-                 </button>
-              </div>
-
-              {(newType === LoanType.BANK || newType === LoanType.APP) && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Tên khoản vay (Mục đích)
-                  </label>
-                  <input required type="text" placeholder="VD: Vay mua xe" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newName} onChange={e => setNewName(e.target.value)} />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  {newType === LoanType.BANK ? 'Tên ngân hàng / Tổ chức' : newType === LoanType.APP ? 'Tên app / Ứng dụng' : 'Tên người cho vay'}
-                </label>
-                <input required type="text" placeholder={newType === LoanType.BANK ? "VD: Vietcombank" : newType === LoanType.APP ? "VD: Tiki, Shopee, MoMo" : "VD: Anh Ba, Chị Tư"} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newProvider} onChange={e => setNewProvider(e.target.value)} />
-              </div>
-
-              {/* BANK/APP FIELDS */}
-              {(newType === LoanType.BANK || newType === LoanType.APP) && (
-                <div className="space-y-4 animate-fade-in">
-                  {/* Checkbox Chỉ trả lãi */}
-                  <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <input 
-                      type="checkbox" 
-                      id="interestOnly"
-                      checked={newInterestOnly}
-                      onChange={e => setNewInterestOnly(e.target.checked)}
-                      className="w-4 h-4 text-amber-600 border-slate-300 rounded focus:ring-amber-500"
-                    />
-                    <label htmlFor="interestOnly" className="text-sm font-medium text-slate-700 cursor-pointer">
-                      Chỉ trả lãi (số tiền trả hàng tháng không làm giảm gốc)
-                    </label>
-                  </div>
-
-                  {/* Số tiền gốc - chỉ hiển thị khi chọn "Chỉ trả lãi" */}
-                  {newInterestOnly && (
-                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền gốc (VNĐ) *</label>
-                      <input 
-                        required={newInterestOnly}
-                        type="number" 
-                        min="0" 
-                        placeholder="VD: 1000000000" 
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none bg-white" 
-                        value={newAmount} 
-                        onChange={e => setNewAmount(e.target.value)} 
-                      />
-                      <p className="text-xs text-amber-700 mt-1">Với khoản vay chỉ trả lãi, bạn cần nhập số tiền gốc riêng</p>
-                    </div>
-                  )}
-
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                      {newInterestOnly ? 'Số tiền lãi trả hàng tháng (VNĐ)' : 'Số tiền trả hàng tháng (VNĐ)'}
-                    </label>
-                    <input required type="number" min="0" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white" value={newMonthlyPayment} onChange={e => setNewMonthlyPayment(e.target.value)} />
-                  </div>
-
-                  {!newInterestOnly && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Tổng số tháng</label>
-                        <input required type="number" min="1" placeholder="12" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newTerm} onChange={e => setNewTerm(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Số kỳ đã trả</label>
-                        <input type="number" min="0" max={newTerm} placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newPaidTerms} onChange={e => setNewPaidTerms(e.target.value)} />
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Ngày thanh toán hàng tháng</label>
-                    <select 
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
-                      value={newMonthlyDueDate}
-                      onChange={e => setNewMonthlyDueDate(parseInt(e.target.value))}
-                    >
-                      {Array.from({length: 31}, (_, i) => i + 1).map(d => (
-                        <option key={d} value={d}>Ngày {d}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {!newInterestOnly && (
-                    <div className="pt-2">
-                      <div className="flex justify-between items-center text-sm font-medium text-slate-600 bg-slate-100 p-3 rounded-lg">
-                        <span>Tổng  dự tính:</span>
-                        <span className="text-emerald-600 font-bold text-lg">{formatCurrency(previewBankTotal)}</span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1 text-center">*Tổng  = Tiền trả hàng tháng x Số tháng</p>
-                    </div>
-                  )}
-
-                  {newInterestOnly && (
-                    <div className="pt-2">
-                      <div className="flex justify-between items-center text-sm font-medium text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg">
-                        <span>Số tiền gốc:</span>
-                        <span className="text-amber-700 font-bold text-lg">{formatCurrency(parseFloat(newAmount) || 0)}</span>
-                      </div>
-                      <p className="text-xs text-amber-700 mt-1 text-center">*Khoản vay này chỉ trả lãi, gốc không giảm theo thời gian</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* PERSONAL FIELDS */}
-              {newType === LoanType.PERSONAL && (
-                 <div className="space-y-4 animate-fade-in">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền vay (VNĐ)</label>
-                      <input required type="number" min="0" placeholder="0" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newAmount} onChange={e => setNewAmount(e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Ngày vay</label>
-                      <input required type="date" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={newStartDate} onChange={e => setNewStartDate(e.target.value)} />
-                    </div>
-                 </div>
-              )}
-
-              <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-transform active:scale-95 shadow-lg shadow-emerald-200">
-                Lưu khoản vay
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddLoanModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSubmit={handleAddLoan}
+      />
 
       {/* Add Credit Card Modal */}
       {showAddCardModal && (

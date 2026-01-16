@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, InvestmentType, LoanStatus, Payment } from '../types';
 import { generateUUID } from '../utils/uuid';
+import { isBorrowPayment } from '../utils/constants';
+import { isCurrentMonthPaid } from '../utils/dateUtils';
 import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 import { getVietnameseLunarDate } from '../utils/lunarCalendar';
@@ -49,17 +51,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     const millions = value / 1000000;
     return `${millions.toFixed(millions >= 10 ? 0 : 1)}M`;
   };
-  // Kiểm tra xem tháng hiện tại đã được thanh toán chưa
-  const isCurrentMonthPaid = (payments: Payment[]): boolean => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    
-    return payments.some(p => {
-      const paymentDate = new Date(p.date);
-      return paymentDate.getFullYear() === currentYear && 
-             paymentDate.getMonth() === currentMonth;
-    });
+  // Helper to check if current month is paid (with borrow check)
+  const checkPaid = (payments: Payment[]): boolean => {
+    return isCurrentMonthPaid(payments, isBorrowPayment);
   };
 
   // Lấy danh sách các khoản thanh toán sắp tới (chưa thanh toán tháng này + đến hạn trong 10 ngày tới)
@@ -77,10 +71,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Khoản vay ngân hàng
     loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
-      const isPaid = isCurrentMonthPaid(loan.payments.filter(p => {
-        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-        return !isBorrow;
-      }));
+      const isPaid = checkPaid(loan.payments.filter(p => !isBorrowPayment(p.id, p.note)));
 
       if (!isPaid) {
         // Chưa thanh toán tháng này
@@ -117,10 +108,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Khoản vay app
     loans.filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0).forEach(loan => {
-      const isPaid = isCurrentMonthPaid(loan.payments.filter(p => {
-        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-        return !isBorrow;
-      }));
+      const isPaid = checkPaid(loan.payments.filter(p => !isBorrowPayment(p.id, p.note)));
 
       if (!isPaid) {
         // Chưa thanh toán tháng này
@@ -157,7 +145,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Thẻ tín dụng (chỉ nếu có paymentAmount > 0)
     creditCards.filter(card => card.paymentAmount > 0).forEach(card => {
-      const isPaid = isCurrentMonthPaid(card.payments);
+      const isPaid = checkPaid(card.payments);
 
       if (!isPaid) {
         // Chưa thanh toán tháng này
@@ -192,7 +180,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Chi tiêu cố định
     fixedExpenses.forEach(expense => {
-      const isPaid = isCurrentMonthPaid(expense.payments);
+      const isPaid = checkPaid(expense.payments);
 
       if (!isPaid) {
         // Chưa thanh toán tháng này
@@ -625,12 +613,8 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     loans.forEach(loan => {
       totalOriginal += loan.originalAmount;
       // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
-      // Check cả ID và note để hỗ trợ dữ liệu cũ
       const paidForLoan = loan.payments
-        .filter(p => {
-          const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-          return !isBorrow;
-        })
+        .filter(p => !isBorrowPayment(p.id, p.note))
         .reduce((acc, p) => acc + p.amount, 0);
       totalPaid += paidForLoan;
       
@@ -837,10 +821,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         // Nếu tháng này là tháng quá khứ (trước tháng hiện tại)
         else {
           // Tính số dư nợ dựa trên payments thực tế trong quá khứ
-          const validPayments = loan.payments.filter(p => {
-            const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-            return !isBorrow;
-          });
+          const validPayments = loan.payments.filter(p => !isBorrowPayment(p.id, p.note));
           
           const monthEndDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
           const totalPaidUpToMonth = validPayments
@@ -1630,10 +1611,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                               <p className="font-medium text-emerald-600">
                                 <Amount
                                   value={(details as Loan).payments
-                                  .filter(p => {
-                                    const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-                                    return !isBorrow;
-                                  })
+                                  .filter(p => !isBorrowPayment(p.id, p.note))
                                   .reduce((acc, p) => acc + p.amount, 0)}
                                   id={`modal-${selectedExpense.id}-loan-paid`}
                                 />
@@ -1644,10 +1622,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                               <p className="font-medium text-rose-600">
                                 <Amount
                                   value={Math.max(0, (details as Loan).originalAmount - (details as Loan).payments
-                                    .filter(p => {
-                                      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-                                      return !isBorrow;
-                                    })
+                                    .filter(p => !isBorrowPayment(p.id, p.note))
                                     .reduce((acc, p) => acc + p.amount, 0))}
                                   id={`modal-${selectedExpense.id}-loan-remaining`}
                                 />

@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Loan, LoanType, LoanStatus, Payment } from '../types';
-import { formatCurrency } from '../App';
+import { formatCurrency } from '../utils/constants';
 import { generateUUID } from '../utils/uuid';
+import { isBorrowPayment } from '../utils/constants';
+import { isCurrentMonthPaid as checkCurrentMonthPaid, formatDate } from '../utils/dateUtils';
 import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2, Archive, CheckCheck, Smartphone, ArrowRightLeft } from 'lucide-react';
 import { Amount } from './AmountVisibility';
 
@@ -125,31 +127,20 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
   const getProgress = (loan: Loan) => {
     // Chỉ tính các payment thực sự (loại bỏ các record vay thêm)
-    // Check cả ID và note để hỗ trợ dữ liệu cũ
-    const allPayments = loan.payments.filter(p => {
-      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-      return !isBorrow;
-    });
+    const allPayments = loan.payments.filter(p => !isBorrowPayment(p.id, p.note));
     
     const paid = allPayments.reduce((sum, p) => sum + p.amount, 0);
     
     // Nếu là khoản vay chỉ trả lãi, các payment không làm giảm gốc
-    // Kiểm tra cả true và !== false để đảm bảo xử lý đúng các giá trị undefined/null
     if (loan.interestOnly === true) {
       const total = loan.originalAmount > 0 ? loan.originalAmount : 1;
-      // Với interestOnly, remaining luôn bằng originalAmount (không giảm)
       return { paid, remaining: loan.originalAmount, percent: 0 };
     } else {
-      // Tính toán bình thường: payment làm giảm gốc
       const total = loan.originalAmount > 0 ? loan.originalAmount : 1;
       const percent = Math.min(100, (paid / total) * 100);
       return { paid, remaining: Math.max(0, loan.originalAmount - paid), percent };
     }
   };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('vi-VN');
-  }
 
   // Tính số kỳ đã trả (chỉ cho vay ngân hàng và app)
   const getPaidPeriods = (loan: Loan): number => {
@@ -194,21 +185,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   // Kiểm tra xem tháng hiện tại đã được thanh toán chưa (chỉ cho vay ngân hàng và app)
   const isCurrentMonthPaid = (loan: Loan): boolean => {
     if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return false;
-    
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    
-    // Kiểm tra xem có payment nào trong tháng hiện tại không
-    const currentMonthPayments = loan.payments.filter(p => {
-      const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-      if (isBorrow) return false;
-      const paymentDate = new Date(p.date);
-      return paymentDate.getFullYear() === currentYear && 
-             paymentDate.getMonth() === currentMonth;
-    });
-    
-    return currentMonthPayments.length > 0;
+    return checkCurrentMonthPaid(loan.payments, isBorrowPayment);
   };
 
   // Kiểm tra xem khoản vay có quá hạn không (chỉ cho vay ngân hàng và app)
@@ -239,9 +216,11 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     
     if (isPaid) {
       // Xóa payment của tháng hiện tại
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
       const currentMonthPayments = loan.payments.filter(p => {
-        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
-        if (isBorrow) return false;
+        if (isBorrowPayment(p.id, p.note)) return false;
         const paymentDate = new Date(p.date);
         return paymentDate.getFullYear() === currentYear && 
                paymentDate.getMonth() === currentMonth;
@@ -1242,7 +1221,7 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {loan.payments.slice().reverse().map(p => {
-                        const isBorrow = p.id.startsWith('borrow-') || (p.note && p.note.includes('Vay thêm'));
+                        const isBorrow = isBorrowPayment(p.id, p.note);
                         return (
                           <tr key={p.id} className="hover:bg-slate-50">
                             <td className="px-4 py-2 text-slate-600">{new Date(p.date).toLocaleDateString('vi-VN')}</td>
