@@ -1,9 +1,15 @@
-import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction, Company, CompanyIncomeRecord, BhxhAdjustmentIndex } from '../types';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction, Company, CompanyIncomeRecord, BhxhAdjustmentIndex, LoanStatus } from '../types';
 import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, lendingRowToLending, investmentRowToInvestment, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow, lendingToLendingRow, investmentToInvestmentRow, investmentAccountRowToInvestmentAccount, investmentAccountToInvestmentAccountRow, investmentTransactionRowToInvestmentTransaction, investmentTransactionToInvestmentTransactionRow, companyRowToCompany, companyToCompanyRow, companyIncomeRecordRowToCompanyIncomeRecord, companyIncomeRecordToCompanyIncomeRecordRow, bhxhAdjustmentIndexRowToBhxhAdjustmentIndex, bhxhAdjustmentIndexToBhxhAdjustmentIndexRow } from './supabase';
 import { generateUUID, isValidUUID } from '../utils/uuid';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const USE_SUPABASE = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+// Local cache / sync helpers (used to avoid cross-device clobbering)
+const LS_LOANS = 'debt_loans';
+// Snapshot of remote ids captured at last successful Supabase load.
+// Used to detect *intentional deletes* without deleting records added from other devices after our last load.
+const LS_LOANS_REMOTE_IDS = 'debt_loans_remote_ids';
 
 /**
  * Load loans data from Supabase (primary) or server API/localStorage (fallback)
@@ -21,45 +27,25 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
 
       if (data) {
         const loans = data.map(loanRowToLoan);
-        let mergedLoans = loans;
-        
-        // Nếu localStorage có dữ liệu mới hơn (ví dụ: Supabase save bị lỗi schema),
-        // thì merge để tránh mất dữ liệu sau khi refresh.
+
+        // Save Supabase snapshot ids to avoid deleting records created on other devices later.
         try {
-          const localSaved = localStorage.getItem('debt_loans');
-          if (localSaved) {
-            const localLoans = JSON.parse(localSaved);
-            if (Array.isArray(localLoans) && localLoans.length > 0) {
-              // Local là nguồn chính để tránh "xóa xong bị hiện lại" khi Supabase không xóa được.
-              // Supabase chỉ bổ sung dữ liệu theo đúng id đã có trong local.
-              const localById = new Map<string, Loan>();
-              localLoans.forEach((l: Loan) => localById.set(l.id, l));
-
-              loans.forEach((remote) => {
-                const local = localById.get(remote.id);
-                if (local) {
-                  // local override remote
-                  localById.set(remote.id, { ...remote, ...local });
-                }
-              });
-
-              mergedLoans = Array.from(localById.values());
-            }
-          }
+          const remoteIds = loans.map(l => l.id);
+          localStorage.setItem(LS_LOANS_REMOTE_IDS, JSON.stringify(remoteIds));
         } catch (e) {
-          console.warn('Không thể merge loans từ localStorage:', e);
+          console.warn('Không thể lưu loans remote ids vào localStorage:', e);
         }
-        
-        // Sync vào localStorage làm backup
+
+        // Cache latest remote data locally for quick reload / offline fallback
         try {
-          localStorage.setItem('debt_loans', JSON.stringify(mergedLoans));
+          localStorage.setItem(LS_LOANS, JSON.stringify(loans));
         } catch (e) {
           console.warn('Không thể lưu vào localStorage:', e);
         }
-        
-        // Migrate từ localStorage nếu database trống
+
+        // If Supabase is empty but local has data, migrate once.
         if (loans.length === 0) {
-          const localSaved = localStorage.getItem('debt_loans');
+          const localSaved = localStorage.getItem(LS_LOANS);
           if (localSaved) {
             try {
               const localLoans = JSON.parse(localSaved);
@@ -72,8 +58,9 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
             }
           }
         }
-        
-        return mergedLoans;
+
+        // Supabase is the source of truth when configured
+        return loans;
       }
     } catch (error) {
       console.error('Lỗi khi tải từ Supabase:', error);
@@ -87,7 +74,7 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
       const loans = await response.json();
       if (Array.isArray(loans)) {
         try {
-          localStorage.setItem('debt_loans', JSON.stringify(loans));
+          localStorage.setItem(LS_LOANS, JSON.stringify(loans));
         } catch (e) {
           console.warn('Không thể lưu vào localStorage:', e);
         }
@@ -99,7 +86,7 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
   }
 
   // Fallback to localStorage
-  const saved = localStorage.getItem('debt_loans');
+  const saved = localStorage.getItem(LS_LOANS);
   if (saved) {
     try {
       const loans = JSON.parse(saved);
@@ -133,42 +120,36 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
         if (upsertError) throw upsertError;
       }
 
-      // Delete records that are not in the current loans array
-      if (loans.length > 0) {
+      // Delete ONLY ids that existed in our last remote snapshot but are now missing locally.
+      // This prevents accidentally deleting records created on another device after our last load.
+      try {
         const currentIds = loans.map(l => l.id);
-        const { data: allLoans } = await supabase
-          .from('loans')
-          .select('id');
-        
-        if (allLoans) {
-          const idsToDelete = allLoans
-            .map(l => l.id)
-            .filter(id => !currentIds.includes(id));
-          
-          if (idsToDelete.length > 0) {
-            const { error: deleteError } = await supabase
-              .from('loans')
-              .delete()
-              .in('id', idsToDelete);
-            
-            if (deleteError) console.warn('Lỗi khi xóa records cũ:', deleteError);
-          }
+        const snapshotRaw = localStorage.getItem(LS_LOANS_REMOTE_IDS);
+        const snapshotIds: string[] = snapshotRaw ? JSON.parse(snapshotRaw) : [];
+        const idsToDelete = Array.isArray(snapshotIds)
+          ? snapshotIds.filter(id => typeof id === 'string' && !currentIds.includes(id))
+          : [];
+
+        if (idsToDelete.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('loans')
+            .delete()
+            .in('id', idsToDelete);
+
+          if (deleteError) console.warn('Lỗi khi xóa loans trên Supabase:', deleteError);
         }
-      } else {
-        // Nếu không có loans, xóa tất cả
-        const { error: deleteError } = await supabase
-          .from('loans')
-          .delete()
-          .neq('id', '00000000-0000-0000-0000-000000000000');
-        
-        if (deleteError) console.warn('Lỗi khi xóa tất cả:', deleteError);
+
+        // Update snapshot to what we currently know locally
+        localStorage.setItem(LS_LOANS_REMOTE_IDS, JSON.stringify(currentIds));
+      } catch (e) {
+        console.warn('Không thể xử lý loans deletion snapshot:', e);
       }
 
       console.log('✅ Đã lưu vào Supabase database');
       
       // Backup vào localStorage
       try {
-        localStorage.setItem('debt_loans', JSON.stringify(loans));
+        localStorage.setItem(LS_LOANS, JSON.stringify(loans));
       } catch (e) {
         console.warn('Không thể lưu vào localStorage:', e);
       }
@@ -179,7 +160,7 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
 
       // Backup vào localStorage để không mất dữ liệu khi refresh
       try {
-        localStorage.setItem('debt_loans', JSON.stringify(loans));
+        localStorage.setItem(LS_LOANS, JSON.stringify(loans));
       } catch (e) {
         console.warn('Không thể lưu backup vào localStorage:', e);
       }
@@ -219,7 +200,7 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
       console.log('Đã lưu vào file database trên server');
       
       try {
-        localStorage.setItem('debt_loans', JSON.stringify(loans));
+        localStorage.setItem(LS_LOANS, JSON.stringify(loans));
       } catch (e) {
         console.warn('Không thể lưu vào localStorage:', e);
       }
@@ -233,7 +214,7 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
     
     // Fallback: Lưu vào localStorage
     try {
-      localStorage.setItem('debt_loans', JSON.stringify(loans));
+      localStorage.setItem(LS_LOANS, JSON.stringify(loans));
       console.warn('Đã lưu vào localStorage (server không khả dụng)');
     } catch (localError) {
       console.error('Lỗi khi lưu vào localStorage:', localError);
@@ -493,7 +474,7 @@ export const exportDataToFile = async (): Promise<void> => {
 
     // Fallback to localStorage
     if (loans.length === 0) {
-      const saved = localStorage.getItem('debt_loans');
+      const saved = localStorage.getItem(LS_LOANS);
       if (saved) loans = JSON.parse(saved);
     }
     if (creditCards.length === 0) {
@@ -862,7 +843,7 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
               if (field === 'amount') expense.amount = 0;
               else if (field === 'dueDate') expense.dueDate = 1;
               else if (field === 'payments') expense.payments = [];
-              else if (field === 'status') expense.status = 'ACTIVE';
+              else if (field === 'status') expense.status = LoanStatus.ACTIVE;
               else {
                 throw new Error(`Dữ liệu không hợp lệ: Chi tiêu cố định thứ ${i + 1} thiếu trường "${field}"`);
               }
@@ -884,7 +865,7 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
               if (field === 'amount') income.amount = 0;
               else if (field === 'receivedDate') income.receivedDate = 1;
               else if (field === 'payments') income.payments = [];
-              else if (field === 'status') income.status = 'ACTIVE';
+              else if (field === 'status') income.status = LoanStatus.ACTIVE;
               else {
                 throw new Error(`Dữ liệu không hợp lệ: Thu nhập thứ ${i + 1} thiếu trường "${field}"`);
               }
@@ -1815,7 +1796,7 @@ export const loadInvestmentAccountsFromServer = async (): Promise<InvestmentAcco
             accountsMap.set(row.name, {
               id: row.id, // Use first investment's ID as account ID (will be regenerated)
               name: row.name,
-              status: row.status as 'ACTIVE' | 'COMPLETED',
+              status: row.status === 'COMPLETED' ? LoanStatus.COMPLETED : LoanStatus.ACTIVE,
               notes: undefined
             });
           }
