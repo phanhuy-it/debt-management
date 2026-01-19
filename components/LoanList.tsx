@@ -3,7 +3,7 @@ import { Loan, LoanType, LoanStatus, Payment } from '../types';
 import { formatCurrency } from '../utils/constants';
 import { generateUUID } from '../utils/uuid';
 import { isBorrowPayment } from '../utils/constants';
-import { isCurrentMonthPaid as checkCurrentMonthPaid, formatDate } from '../utils/dateUtils';
+import { isCurrentMonthPaid as checkCurrentMonthPaid, formatDate, isLoanPaymentDueInMonth, getLoanFirstPaymentMonthStart } from '../utils/dateUtils';
 import { Plus, Trash2, History, Banknote, User, Calendar, DollarSign, Clock, ArrowUpDown, ArrowDownWideNarrow, ArrowUp01, TrendingUp, X, CheckCircle2, Circle, AlertTriangle, Edit2, Archive, CheckCheck, Smartphone, ArrowRightLeft } from 'lucide-react';
 import { Amount } from './AmountVisibility';
 
@@ -19,6 +19,7 @@ interface LoanListProps {
 type SortOption = 'dueDate' | 'amount';
 type LoanTab = 'BANK' | 'APP' | 'PERSONAL';
 type StatusFilter = 'ACTIVE' | 'COMPLETED' | 'ALL';
+type ViewMode = 'DETAIL' | 'TABLE';
 
 const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, onRemovePayment, onAddLoanAmount, onUpdateLoan }) => {
   const [selectedLoan, setSelectedLoan] = useState<string | null>(null);
@@ -26,13 +27,60 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>('dueDate');
-  const [activeTab, setActiveTab] = useState<LoanTab>('BANK');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
+  const [activeTab, setActiveTab] = useState<LoanTab>(() => {
+    try {
+      const saved = localStorage.getItem('loan_active_tab');
+      return saved === 'APP' || saved === 'PERSONAL' || saved === 'BANK' ? saved : 'BANK';
+    } catch {
+      return 'BANK';
+    }
+  });
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+    try {
+      const saved = localStorage.getItem('loan_status_filter');
+      return saved === 'COMPLETED' || saved === 'ALL' || saved === 'ACTIVE' ? saved : 'ACTIVE';
+    } catch {
+      return 'ACTIVE';
+    }
+  });
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem('loan_view_mode');
+      return saved === 'TABLE' ? 'TABLE' : 'DETAIL';
+    } catch {
+      return 'DETAIL';
+    }
+  });
   const [loanToBorrow, setLoanToBorrow] = useState<string | null>(null);
   const [borrowAmount, setBorrowAmount] = useState('');
   const [borrowNote, setBorrowNote] = useState('');
   const [loanToEdit, setLoanToEdit] = useState<string | null>(null);
   const [editLoanName, setEditLoanName] = useState('');
+  const [editFirstPaymentMonthYear, setEditFirstPaymentMonthYear] = useState('');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('loan_view_mode', viewMode);
+    } catch {
+      // ignore
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('loan_active_tab', activeTab);
+    } catch {
+      // ignore
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('loan_status_filter', statusFilter);
+    } catch {
+      // ignore
+    }
+  }, [statusFilter]);
 
   const handleQuickPay = (loanId: string, loan: Loan) => {
     if ((loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0) {
@@ -87,15 +135,20 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   const handleEditLoanName = (loan: Loan) => {
     setLoanToEdit(loan.id);
     setEditLoanName(loan.name);
+    setEditFirstPaymentMonthYear(loan.firstPaymentMonthYear || getLoanFirstPaymentMonthStart(loan).toISOString().slice(0, 7));
   };
 
   const handleUpdateLoanName = (e: React.FormEvent) => {
     e.preventDefault();
     if (!loanToEdit || !editLoanName.trim()) return;
 
-    onUpdateLoan(loanToEdit, { name: editLoanName.trim() });
+    onUpdateLoan(loanToEdit, { 
+      name: editLoanName.trim(),
+      firstPaymentMonthYear: editFirstPaymentMonthYear || undefined
+    });
     setLoanToEdit(null);
     setEditLoanName('');
+    setEditFirstPaymentMonthYear('');
   };
 
   // Handle ESC key to close modals
@@ -164,17 +217,25 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     // Tính số kỳ còn lại (làm tròn lên)
     const remainingPeriods = Math.ceil(remaining / loan.monthlyPayment);
     
-    // Tính ngày tất toán: từ tháng hiện tại hoặc tháng tiếp theo
-    // Nếu đã trả tháng này rồi, thì bắt đầu tính từ tháng sau
-    // Nếu chưa trả tháng này, thì tính từ tháng này
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const firstPayMonthStart = getLoanFirstPaymentMonthStart(loan);
+    const thisMonthStart = new Date(currentYear, currentMonth, 1);
+    const isDueThisMonth = isLoanPaymentDueInMonth(loan, currentYear, currentMonth);
     const currentMonthPaid = isCurrentMonthPaid(loan);
-    const startMonth = currentMonthPaid ? now.getMonth() + 1 : now.getMonth();
+
+    // Tháng bắt đầu để dự phóng kỳ còn lại:
+    // - Nếu chưa tới kỳ đầu: bắt đầu từ kỳ đầu
+    // - Nếu đã tới kỳ: bắt đầu từ tháng hiện tại (hoặc tháng sau nếu đã trả tháng này)
+    let base = thisMonthStart < firstPayMonthStart ? new Date(firstPayMonthStart) : new Date(thisMonthStart);
+    if (isDueThisMonth && currentMonthPaid) {
+      base = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+    }
     
-    // Tính tháng/năm tất toán
-    const finalMonth = startMonth + remainingPeriods - 1;
-    const finalYear = now.getFullYear() + Math.floor(finalMonth / 12);
-    const finalMonthIndex = finalMonth % 12;
+    const finalMonthDate = new Date(base.getFullYear(), base.getMonth() + remainingPeriods - 1, 1);
+    const finalYear = finalMonthDate.getFullYear();
+    const finalMonthIndex = finalMonthDate.getMonth();
     
     // Format: "Tháng X/YYYY"
     const monthNames = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 
@@ -185,6 +246,8 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   // Kiểm tra xem tháng hiện tại đã được thanh toán chưa (chỉ cho vay ngân hàng và app)
   const isCurrentMonthPaid = (loan: Loan): boolean => {
     if ((loan.type !== LoanType.BANK && loan.type !== LoanType.APP) || loan.monthlyPayment === 0) return false;
+    const now = new Date();
+    if (!isLoanPaymentDueInMonth(loan, now.getFullYear(), now.getMonth())) return false;
     return checkCurrentMonthPaid(loan.payments, isBorrowPayment);
   };
 
@@ -196,6 +259,9 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     const currentDay = now.getDate();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
+
+    // Nếu tháng này chưa tới kỳ thanh toán (trước kỳ đầu) thì không thể quá hạn
+    if (!isLoanPaymentDueInMonth(loan, currentYear, currentMonth)) return false;
     
     // Nếu đã trả rồi thì không quá hạn
     if (isCurrentMonthPaid(loan)) return false;
@@ -211,6 +277,9 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
+
+    // Không cho toggle nếu tháng này chưa tới kỳ thanh toán (trước kỳ đầu)
+    if (!isLoanPaymentDueInMonth(loan, currentYear, currentMonth)) return;
     
     const isPaid = isCurrentMonthPaid(loan);
     
@@ -285,29 +354,24 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     };
   }, [loans, sortBy, statusFilter]);
 
-  // Set tab mặc định dựa trên loại khoản vay có sẵn (chỉ khi component mount lần đầu)
-  const [isInitialMount, setIsInitialMount] = useState(true);
-  
+  // Giữ tab đã chọn khi refresh (localStorage), chỉ tự chuyển tab nếu tab hiện tại không còn dữ liệu
   useEffect(() => {
-    if (statusFilter === 'COMPLETED') return; // Không tự động chuyển tab khi xem lịch sử
-    
-    // Chỉ tự động chuyển tab khi mount lần đầu, sau đó giữ nguyên tab người dùng đã chọn
-    if (isInitialMount) {
-      if (bankLoans.length > 0) {
-        setActiveTab('BANK');
-      } else if (appLoans.length > 0) {
-        setActiveTab('APP');
-      } else if (personalLoans.length > 0) {
-        setActiveTab('PERSONAL');
-      }
-      setIsInitialMount(false);
-    }
-  }, [bankLoans.length, appLoans.length, personalLoans.length, statusFilter, isInitialMount]);
-  
-  // Reset isInitialMount khi statusFilter thay đổi
-  useEffect(() => {
-    setIsInitialMount(true);
-  }, [statusFilter]);
+    if (statusFilter === 'COMPLETED') return;
+    const hasBank = bankLoans.length > 0;
+    const hasApp = appLoans.length > 0;
+    const hasPersonal = personalLoans.length > 0;
+
+    const isCurrentTabValid =
+      (activeTab === 'BANK' && hasBank) ||
+      (activeTab === 'APP' && hasApp) ||
+      (activeTab === 'PERSONAL' && hasPersonal);
+
+    if (isCurrentTabValid) return;
+
+    if (hasBank) setActiveTab('BANK');
+    else if (hasApp) setActiveTab('APP');
+    else if (hasPersonal) setActiveTab('PERSONAL');
+  }, [statusFilter, activeTab, bankLoans.length, appLoans.length, personalLoans.length]);
 
   const renderLoanRow = (loan: Loan) => {
     const { paid, remaining, percent } = getProgress(loan);
@@ -491,6 +555,12 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                   <Calendar size={16} className="text-slate-400" />
                   <span>Đến hạn: <span className="font-semibold text-slate-800">Ngày {loan.monthlyDueDate}</span></span>
                 </div>
+                {loan.firstPaymentMonthYear && (
+                  <div className="flex items-center gap-2">
+                    <Clock size={16} className="text-slate-400" />
+                    <span>Kỳ đầu: <span className="font-semibold text-slate-800">{loan.firstPaymentMonthYear}</span></span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <DollarSign size={16} className="text-slate-400" />
                   <span>Số tiền: <span className="font-semibold text-slate-800"><Amount value={loan.monthlyPayment} id={`loan-${loan.id}-monthly`} /></span></span>
@@ -513,14 +583,21 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                     toggleCurrentMonthPayment(loan);
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    isCurrentMonthPaid(loan)
+                    !isLoanPaymentDueInMonth(loan, new Date().getFullYear(), new Date().getMonth())
+                      ? 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                      : isCurrentMonthPaid(loan)
                       ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
                       : isOverdue(loan)
                       ? 'bg-red-100 text-red-700 hover:bg-red-200'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {isCurrentMonthPaid(loan) ? (
+                  {!isLoanPaymentDueInMonth(loan, new Date().getFullYear(), new Date().getMonth()) ? (
+                    <>
+                      <Clock size={14} />
+                      <span>Chưa đến kỳ</span>
+                    </>
+                  ) : isCurrentMonthPaid(loan) ? (
                     <>
                       <CheckCircle2 size={14} />
                       <span>Đã trả tháng này</span>
@@ -564,28 +641,281 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
     );
   };
 
+  const renderLoanTableRow = (loan: Loan) => {
+    const { paid, remaining, percent } = getProgress(loan);
+    const finalPaymentDate = (loan.type === LoanType.BANK || loan.type === LoanType.APP) ? calculateFinalPaymentDate(loan) : null;
+    const now = new Date();
+    const isDueThisMonth = (loan.type === LoanType.BANK || loan.type === LoanType.APP) ? isLoanPaymentDueInMonth(loan, now.getFullYear(), now.getMonth()) : false;
+    const paidThisMonth = (loan.type === LoanType.BANK || loan.type === LoanType.APP) ? isCurrentMonthPaid(loan) : false;
+    const overdue = (loan.type === LoanType.BANK || loan.type === LoanType.APP) ? isOverdue(loan) : false;
+
+    const paymentStatusLabel =
+      (loan.type === LoanType.BANK || loan.type === LoanType.APP)
+        ? (!isDueThisMonth ? 'Chưa đến kỳ' : paidThisMonth ? 'Đã trả' : overdue ? 'Quá hạn' : 'Chưa trả')
+        : '-';
+
+    const paymentStatusClass =
+      paymentStatusLabel === 'Đã trả'
+        ? 'bg-emerald-100 text-emerald-700'
+        : paymentStatusLabel === 'Quá hạn'
+        ? 'bg-red-100 text-red-700'
+        : paymentStatusLabel === 'Chưa trả'
+        ? 'bg-slate-100 text-slate-700'
+        : 'bg-slate-50 text-slate-400';
+
+    return (
+      <tr key={loan.id} className="border-b border-slate-100 hover:bg-slate-50">
+        <td className="px-4 py-3 whitespace-nowrap">
+          <div className="flex items-center gap-2">
+            <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${
+              loan.type === LoanType.BANK ? 'bg-blue-100 text-blue-600' :
+              loan.type === LoanType.APP ? 'bg-green-100 text-green-600' :
+              'bg-purple-100 text-purple-600'
+            }`}>
+              {loan.type === LoanType.BANK ? <Banknote size={16} /> :
+               loan.type === LoanType.APP ? <Smartphone size={16} /> :
+               <User size={16} />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-900 truncate max-w-[260px]">{loan.name}</span>
+                {loan.interestOnly && (
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium whitespace-nowrap">
+                    Chỉ trả lãi
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-slate-500 truncate max-w-[320px]">{loan.provider}</div>
+            </div>
+          </div>
+        </td>
+
+        <td className="px-4 py-3 text-right whitespace-nowrap">
+          <Amount value={loan.originalAmount} id={`loan-table-${loan.id}-original`} />
+        </td>
+        <td className="px-4 py-3 text-right whitespace-nowrap text-emerald-700 font-medium">
+          <Amount value={paid} id={`loan-table-${loan.id}-paid`} />
+        </td>
+        <td className="px-4 py-3 text-right whitespace-nowrap text-rose-700 font-semibold">
+          <Amount value={remaining} id={`loan-table-${loan.id}-remaining`} />
+        </td>
+
+        <td className="px-4 py-3 whitespace-nowrap">
+          {(loan.type === LoanType.BANK || loan.type === LoanType.APP) ? (
+            <div className="text-xs text-slate-600 space-y-0.5">
+              <div>Ngày {loan.monthlyDueDate}</div>
+              <div className="text-slate-500">
+                <Amount value={loan.monthlyPayment} id={`loan-table-${loan.id}-monthly`} />
+              </div>
+              {loan.firstPaymentMonthYear && (
+                <div className="text-slate-500">Kỳ đầu: {loan.firstPaymentMonthYear}</div>
+              )}
+              {finalPaymentDate && (
+                <div className="text-emerald-700 font-medium">Tất toán: {finalPaymentDate}</div>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-600">
+              Ngày vay: {formatDate(loan.startDate)}
+            </div>
+          )}
+        </td>
+
+        <td className="px-4 py-3 whitespace-nowrap">
+          {(loan.type === LoanType.BANK || loan.type === LoanType.APP) ? (
+            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${paymentStatusClass}`}>
+              {paymentStatusLabel}
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400">-</span>
+          )}
+        </td>
+
+        <td className="px-4 py-3 whitespace-nowrap">
+          <div className="flex items-center gap-1 justify-end">
+            {(loan.type === LoanType.BANK || loan.type === LoanType.APP) && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleQuickPay(loan.id, loan);
+                  }}
+                  className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md font-medium"
+                  title={`Trả ${formatCurrency(loan.monthlyPayment)}`}
+                >
+                  Trả
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditLoanName(loan);
+                  }}
+                  className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                  title="Chỉnh sửa"
+                >
+                  <Edit2 size={16} />
+                </button>
+              </>
+            )}
+
+            {loan.type === LoanType.PERSONAL && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedLoan(selectedLoan === loan.id ? null : loan.id);
+                    setLoanToBorrow(null);
+                  }}
+                  className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md font-medium"
+                  title="Trả nợ"
+                >
+                  Trả
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLoanToBorrow(loanToBorrow === loan.id ? null : loan.id);
+                    setSelectedLoan(null);
+                  }}
+                  className="p-1.5 text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                  title="Vay thêm"
+                >
+                  <TrendingUp size={16} />
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowHistory(showHistory === loan.id ? null : loan.id);
+              }}
+              className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+              title="Lịch sử"
+            >
+              <History size={16} />
+            </button>
+
+            {loan.status === LoanStatus.ACTIVE && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const { remaining } = getProgress(loan);
+                  if (remaining > 0) {
+                    if (window.confirm(`Khoản vay này còn nợ ${formatCurrency(remaining)}. Bạn vẫn muốn đánh dấu là đã hoàn thành?`)) {
+                      handleMarkAsCompleted(loan.id);
+                    }
+                  } else {
+                    handleMarkAsCompleted(loan.id);
+                  }
+                }}
+                className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded transition-colors"
+                title="Đánh dấu đã hoàn thành"
+              >
+                <CheckCheck size={16} />
+              </button>
+            )}
+
+            {loan.status === LoanStatus.COMPLETED && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRestoreLoan(loan.id);
+                }}
+                className="p-1.5 text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                title="Khôi phục"
+              >
+                <Archive size={16} />
+              </button>
+            )}
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteLoan(loan.id);
+              }}
+              className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded transition-colors"
+              title="Xóa"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const renderLoanTable = (items: Loan[]) => {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-[980px] w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Kỳ / Ngày</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Trạng thái</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map(renderLoanTableRow)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-xl font-bold text-slate-800">Danh sách khoản vay</h2>
         
-        {/* Sort Controls */}
-        {statusFilter !== 'COMPLETED' && (
-          <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-             <button 
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          {/* Sort Controls */}
+          {statusFilter !== 'COMPLETED' && (
+            <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+              <button 
                 onClick={() => setSortBy('dueDate')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'dueDate' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-             >
+              >
                 <ArrowUp01 size={14} /> Ngày đến hạn
-             </button>
-             <button 
+              </button>
+              <button 
                 onClick={() => setSortBy('amount')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${sortBy === 'amount' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
-             >
+              >
                 <ArrowDownWideNarrow size={14} /> Số tiền lớn nhất
-             </button>
+              </button>
+            </div>
+          )}
+
+          {/* View mode */}
+          <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode('DETAIL')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                viewMode === 'DETAIL' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Chi tiết
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('TABLE')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                viewMode === 'TABLE' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Bảng
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Status Filter */}
@@ -874,56 +1204,68 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
 
       {/* BANK SECTION */}
       {statusFilter !== 'COMPLETED' && activeTab === 'BANK' && bankLoans.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
-            <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+        viewMode === 'TABLE' ? (
+          renderLoanTable(bankLoans)
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
+              <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+            </div>
+            {/* Body */}
+            <div className="divide-y divide-slate-100">
+              {bankLoans.map(renderLoanRow)}
+            </div>
           </div>
-          {/* Body */}
-          <div className="divide-y divide-slate-100">
-            {bankLoans.map(renderLoanRow)}
-          </div>
-        </div>
+        )
       )}
 
       {/* APP SECTION */}
       {statusFilter !== 'COMPLETED' && activeTab === 'APP' && appLoans.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
-            <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+        viewMode === 'TABLE' ? (
+          renderLoanTable(appLoans)
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
+              <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+            </div>
+            {/* Body */}
+            <div className="divide-y divide-slate-100">
+              {appLoans.map(renderLoanRow)}
+            </div>
           </div>
-          {/* Body */}
-          <div className="divide-y divide-slate-100">
-            {appLoans.map(renderLoanRow)}
-          </div>
-        </div>
+        )
       )}
 
       {/* PERSONAL SECTION */}
       {statusFilter !== 'COMPLETED' && activeTab === 'PERSONAL' && personalLoans.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
-            <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
-            <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+        viewMode === 'TABLE' ? (
+          renderLoanTable(personalLoans)
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-200">
+              <div className="col-span-12 md:col-span-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">Khoản vay</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Tổng gốc</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Đã trả</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Còn lại</div>
+              <div className="col-span-6 md:col-span-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Thao tác</div>
+            </div>
+            {/* Body */}
+            <div className="divide-y divide-slate-100">
+              {personalLoans.map(renderLoanRow)}
+            </div>
           </div>
-          {/* Body */}
-          <div className="divide-y divide-slate-100">
-            {personalLoans.map(renderLoanRow)}
-          </div>
-        </div>
+        )
       )}
 
       {/* Empty state for current tab */}
@@ -1087,12 +1429,25 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
                     autoFocus
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Kỳ thanh toán đầu tiên (Tháng/Năm)</label>
+                  <input
+                    type="month"
+                    value={editFirstPaymentMonthYear}
+                    onChange={(e) => setEditFirstPaymentMonthYear(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Dùng để thống kê khoản vay theo đúng tháng thực tế.
+                  </p>
+                </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button 
                     type="button" 
                     onClick={() => {
                       setLoanToEdit(null);
                       setEditLoanName('');
+                      setEditFirstPaymentMonthYear('');
                     }} 
                     className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
                   >

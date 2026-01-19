@@ -1,5 +1,5 @@
-import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction } from '../types';
-import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, lendingRowToLending, investmentRowToInvestment, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow, lendingToLendingRow, investmentToInvestmentRow, investmentAccountRowToInvestmentAccount, investmentAccountToInvestmentAccountRow, investmentTransactionRowToInvestmentTransaction, investmentTransactionToInvestmentTransactionRow } from './supabase';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction, Company, CompanyIncomeRecord, BhxhAdjustmentIndex } from '../types';
+import { supabase, loanRowToLoan, creditCardRowToCreditCard, fixedExpenseRowToFixedExpense, incomeRowToIncome, lendingRowToLending, investmentRowToInvestment, loanToLoanRow, creditCardToCreditCardRow, fixedExpenseToFixedExpenseRow, incomeToIncomeRow, lendingToLendingRow, investmentToInvestmentRow, investmentAccountRowToInvestmentAccount, investmentAccountToInvestmentAccountRow, investmentTransactionRowToInvestmentTransaction, investmentTransactionToInvestmentTransactionRow, companyRowToCompany, companyToCompanyRow, companyIncomeRecordRowToCompanyIncomeRecord, companyIncomeRecordToCompanyIncomeRecordRow, bhxhAdjustmentIndexRowToBhxhAdjustmentIndex, bhxhAdjustmentIndexToBhxhAdjustmentIndexRow } from './supabase';
 import { generateUUID, isValidUUID } from '../utils/uuid';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -21,10 +21,38 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
 
       if (data) {
         const loans = data.map(loanRowToLoan);
+        let mergedLoans = loans;
+        
+        // Nếu localStorage có dữ liệu mới hơn (ví dụ: Supabase save bị lỗi schema),
+        // thì merge để tránh mất dữ liệu sau khi refresh.
+        try {
+          const localSaved = localStorage.getItem('debt_loans');
+          if (localSaved) {
+            const localLoans = JSON.parse(localSaved);
+            if (Array.isArray(localLoans) && localLoans.length > 0) {
+              // Local là nguồn chính để tránh "xóa xong bị hiện lại" khi Supabase không xóa được.
+              // Supabase chỉ bổ sung dữ liệu theo đúng id đã có trong local.
+              const localById = new Map<string, Loan>();
+              localLoans.forEach((l: Loan) => localById.set(l.id, l));
+
+              loans.forEach((remote) => {
+                const local = localById.get(remote.id);
+                if (local) {
+                  // local override remote
+                  localById.set(remote.id, { ...remote, ...local });
+                }
+              });
+
+              mergedLoans = Array.from(localById.values());
+            }
+          }
+        } catch (e) {
+          console.warn('Không thể merge loans từ localStorage:', e);
+        }
         
         // Sync vào localStorage làm backup
         try {
-          localStorage.setItem('debt_loans', JSON.stringify(loans));
+          localStorage.setItem('debt_loans', JSON.stringify(mergedLoans));
         } catch (e) {
           console.warn('Không thể lưu vào localStorage:', e);
         }
@@ -45,7 +73,7 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
           }
         }
         
-        return loans;
+        return mergedLoans;
       }
     } catch (error) {
       console.error('Lỗi khi tải từ Supabase:', error);
@@ -148,7 +176,32 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
       return;
     } catch (error) {
       console.error('❌ Lỗi khi lưu vào Supabase:', error);
-      throw error;
+
+      // Backup vào localStorage để không mất dữ liệu khi refresh
+      try {
+        localStorage.setItem('debt_loans', JSON.stringify(loans));
+      } catch (e) {
+        console.warn('Không thể lưu backup vào localStorage:', e);
+      }
+
+      // Fallback to server API (file-based database) nếu có
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/loans`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ loans }),
+        });
+
+        if (response.ok) {
+          console.warn('⚠️ Supabase lưu thất bại, đã fallback sang file database trên server.');
+          return;
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      console.warn('⚠️ Supabase lưu thất bại, dữ liệu chỉ được lưu tạm ở localStorage.');
+      return;
     }
   }
 
@@ -381,16 +434,23 @@ export const exportDataToFile = async (): Promise<void> => {
     let creditCards: CreditCard[] = [];
     let fixedExpenses: FixedExpense[] = [];
     let incomes: Income[] = [];
+    let lendings: Lending[] = [];
+    let companies: Company[] = [];
+    let companyIncomeRecords: CompanyIncomeRecord[] = [];
+    let bhxhAdjustmentIndices: BhxhAdjustmentIndex[] = [];
     
     // Ưu tiên lấy từ Supabase
     if (USE_SUPABASE) {
       try {
-        const [loansResult, cardsResult, expensesResult, incomesResult, lendingsResult] = await Promise.all([
+        const [loansResult, cardsResult, expensesResult, incomesResult, lendingsResult, companiesResult, companyIncomeRecordsResult, bhxhIndicesResult] = await Promise.all([
           supabase.from('loans').select('*'),
           supabase.from('credit_cards').select('*'),
           supabase.from('fixed_expenses').select('*'),
           supabase.from('income').select('*'),
-          supabase.from('lendings').select('*')
+          supabase.from('lendings').select('*'),
+          supabase.from('companies').select('*'),
+          supabase.from('company_income_records').select('*'),
+          supabase.from('bhxh_adjustment_indices').select('*')
         ]);
 
         if (loansResult.data) loans = loansResult.data.map(loanRowToLoan);
@@ -398,6 +458,9 @@ export const exportDataToFile = async (): Promise<void> => {
         if (expensesResult.data) fixedExpenses = expensesResult.data.map(fixedExpenseRowToFixedExpense);
         if (incomesResult.data) incomes = incomesResult.data.map(incomeRowToIncome);
         if (lendingsResult.data) lendings = lendingsResult.data.map(lendingRowToLending);
+        if (companiesResult.data) companies = companiesResult.data.map(companyRowToCompany);
+        if (companyIncomeRecordsResult.data) companyIncomeRecords = companyIncomeRecordsResult.data.map(companyIncomeRecordRowToCompanyIncomeRecord);
+        if (bhxhIndicesResult.data) bhxhAdjustmentIndices = bhxhIndicesResult.data.map(bhxhAdjustmentIndexRowToBhxhAdjustmentIndex);
       } catch (error) {
         console.warn('Lỗi khi lấy từ Supabase, thử fallback:', error);
       }
@@ -446,24 +509,61 @@ export const exportDataToFile = async (): Promise<void> => {
       if (saved) incomes = JSON.parse(saved);
     }
 
-    let lendings: Lending[] = [];
-    const savedLendings = localStorage.getItem('debt_lendings');
-    if (savedLendings) {
-      try {
-        lendings = JSON.parse(savedLendings);
-      } catch (e) {
-        console.warn('Lỗi khi đọc lendings từ localStorage:', e);
+    if (lendings.length === 0) {
+      const savedLendings = localStorage.getItem('debt_lendings');
+      if (savedLendings) {
+        try {
+          lendings = JSON.parse(savedLendings);
+        } catch (e) {
+          console.warn('Lỗi khi đọc lendings từ localStorage:', e);
+        }
+      }
+    }
+
+    if (companies.length === 0) {
+      const savedCompanies = localStorage.getItem('debt_companies');
+      if (savedCompanies) {
+        try {
+          companies = JSON.parse(savedCompanies);
+        } catch (e) {
+          console.warn('Lỗi khi đọc companies từ localStorage:', e);
+        }
+      }
+    }
+
+    if (companyIncomeRecords.length === 0) {
+      const savedRecords = localStorage.getItem('debt_company_income_records');
+      if (savedRecords) {
+        try {
+          companyIncomeRecords = JSON.parse(savedRecords);
+        } catch (e) {
+          console.warn('Lỗi khi đọc company income records từ localStorage:', e);
+        }
+      }
+    }
+    
+    if (bhxhAdjustmentIndices.length === 0) {
+      const saved = localStorage.getItem('debt_bhxh_adjustment_indices');
+      if (saved) {
+        try {
+          bhxhAdjustmentIndices = JSON.parse(saved);
+        } catch (e) {
+          console.warn('Lỗi khi đọc bhxh adjustment indices từ localStorage:', e);
+        }
       }
     }
 
     const exportData = {
-      version: '1.0',
+      version: '1.2',
       exportDate: new Date().toISOString(),
       loans: Array.isArray(loans) ? loans : [],
       creditCards: Array.isArray(creditCards) ? creditCards : [],
       fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],
       incomes: Array.isArray(incomes) ? incomes : [],
       lendings: Array.isArray(lendings) ? lendings : [],
+      companies: Array.isArray(companies) ? companies : [],
+      companyIncomeRecords: Array.isArray(companyIncomeRecords) ? companyIncomeRecords : [],
+      bhxhAdjustmentIndices: Array.isArray(bhxhAdjustmentIndices) ? bhxhAdjustmentIndices : [],
       investments: []
     };
 
@@ -540,6 +640,28 @@ function migrateIncomeIds(incomes: Income[]): Income[] {
   }));
 }
 
+function migrateCompanyIds(companies: Company[]): { companies: Company[]; idMap: Map<string, string> } {
+  const idMap = new Map<string, string>();
+  const migrated = companies.map(company => {
+    const oldId = company.id;
+    const newId = isValidUUID(oldId) ? oldId : generateUUID();
+    if (oldId !== newId) idMap.set(oldId, newId);
+    return { ...company, id: newId };
+  });
+  return { companies: migrated, idMap };
+}
+
+function migrateCompanyIncomeRecordIds(records: CompanyIncomeRecord[], companyIdMap: Map<string, string>): CompanyIncomeRecord[] {
+  return records.map(r => {
+    const mappedCompanyId = companyIdMap.get(r.companyId) || r.companyId;
+    return {
+      ...r,
+      id: isValidUUID(r.id) ? r.id : generateUUID(),
+      companyId: mappedCompanyId
+    };
+  });
+}
+
 /**
  * Import data from a JSON file (supports both old format - loans only, and new format - all data)
  * Returns all imported data with migrated UUIDs
@@ -550,6 +672,9 @@ export interface ImportedData {
   fixedExpenses: FixedExpense[];
   incomes: Income[];
   lendings: Lending[];
+  companies: Company[];
+  companyIncomeRecords: CompanyIncomeRecord[];
+  bhxhAdjustmentIndices: BhxhAdjustmentIndex[];
 }
 
 export const importDataFromFile = (file: File): Promise<ImportedData> => {
@@ -585,6 +710,10 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
         let fixedExpenses: FixedExpense[] = [];
         let incomes: Income[] = [];
         let lendings: Lending[] = [];
+        let companies: Company[] = [];
+        let companyIncomeRecords: CompanyIncomeRecord[] = [];
+        let bhxhAdjustmentIndices: BhxhAdjustmentIndex[] = [];
+        let companyIdMap = new Map<string, string>();
         
         try {
           // Check for new format with all data types
@@ -626,6 +755,31 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
               payments: migratePaymentIds(lending.payments || [])
             }));
           }
+
+          if (data.companies && Array.isArray(data.companies)) {
+            companies = data.companies as Company[];
+            console.log(`Tìm thấy ${companies.length} công ty`);
+            const migratedCompanies = migrateCompanyIds(companies);
+            companies = migratedCompanies.companies;
+            companyIdMap = migratedCompanies.idMap;
+          }
+
+          if (data.companyIncomeRecords && Array.isArray(data.companyIncomeRecords)) {
+            companyIncomeRecords = data.companyIncomeRecords as CompanyIncomeRecord[];
+            console.log(`Tìm thấy ${companyIncomeRecords.length} lịch sử lương/BHXH theo công ty`);
+            companyIncomeRecords = migrateCompanyIncomeRecordIds(companyIncomeRecords, companyIdMap);
+          }
+
+          if (data.bhxhAdjustmentIndices && Array.isArray(data.bhxhAdjustmentIndices)) {
+            bhxhAdjustmentIndices = data.bhxhAdjustmentIndices as BhxhAdjustmentIndex[];
+            console.log(`Tìm thấy ${bhxhAdjustmentIndices.length} chỉ số trượt giá (BHXH) theo năm`);
+            bhxhAdjustmentIndices = bhxhAdjustmentIndices.map(i => ({
+              ...i,
+              id: isValidUUID(i.id) ? i.id : generateUUID(),
+              year: Number((i as any).year),
+              factor: Number((i as any).factor)
+            })).filter(i => Number.isFinite(i.year) && Number.isFinite(i.factor));
+          }
           
           // Handle old format (direct array of loans)
           if (Array.isArray(data) && loans.length === 0) {
@@ -639,7 +793,16 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
         }
         
         // Validate data
-        if (loans.length === 0 && creditCards.length === 0 && fixedExpenses.length === 0 && incomes.length === 0 && lendings.length === 0) {
+        if (
+          loans.length === 0 &&
+          creditCards.length === 0 &&
+          fixedExpenses.length === 0 &&
+          incomes.length === 0 &&
+          lendings.length === 0 &&
+          companies.length === 0 &&
+          companyIncomeRecords.length === 0 &&
+          bhxhAdjustmentIndices.length === 0
+        ) {
           throw new Error('File không chứa dữ liệu hợp lệ. Vui lòng kiểm tra định dạng file.');
         }
         
@@ -737,7 +900,10 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
           loans: loans.length,
           creditCards: creditCards.length,
           fixedExpenses: fixedExpenses.length,
-          incomes: incomes.length
+          incomes: incomes.length,
+          companies: companies.length,
+          companyIncomeRecords: companyIncomeRecords.length,
+          bhxhAdjustmentIndices: bhxhAdjustmentIndices.length
         });
         
         resolve({
@@ -745,7 +911,10 @@ export const importDataFromFile = (file: File): Promise<ImportedData> => {
           creditCards,
           fixedExpenses,
           incomes,
-          lendings
+          lendings,
+          companies,
+          companyIncomeRecords,
+          bhxhAdjustmentIndices
         });
       } catch (error) {
         console.error('Lỗi chi tiết khi import:', error);
@@ -1079,6 +1248,395 @@ export const saveIncomeToServer = async (incomes: Income[]): Promise<void> => {
     console.warn('Đã lưu vào localStorage (Supabase không khả dụng)');
   } catch (localError) {
     console.error('Lỗi khi lưu vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
+ * Load companies data from Supabase (primary) or localStorage (fallback)
+ */
+export const loadCompaniesFromServer = async (): Promise<Company[]> => {
+  if (USE_SUPABASE) {
+    try {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const companies = data.map(companyRowToCompany);
+
+        try {
+          localStorage.setItem('debt_companies', JSON.stringify(companies));
+        } catch (e) {
+          console.warn('Không thể lưu companies vào localStorage:', e);
+        }
+
+        // Migrate từ localStorage nếu database trống
+        if (companies.length === 0) {
+          const localSaved = localStorage.getItem('debt_companies');
+          if (localSaved) {
+            try {
+              const localCompanies = JSON.parse(localSaved);
+              if (Array.isArray(localCompanies) && localCompanies.length > 0) {
+                await saveCompaniesToServer(localCompanies);
+                return localCompanies;
+              }
+            } catch (e) {
+              console.error('Lỗi khi migrate companies từ localStorage:', e);
+            }
+          }
+        }
+
+        return companies;
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải companies từ Supabase:', error);
+    }
+  }
+
+  // Fallback to localStorage
+  const saved = localStorage.getItem('debt_companies');
+  if (saved) {
+    try {
+      const companies = JSON.parse(saved);
+      if (Array.isArray(companies)) return companies;
+    } catch (error) {
+      console.error('Lỗi khi đọc companies từ localStorage:', error);
+    }
+  }
+  return [];
+};
+
+/**
+ * Save companies data to Supabase (primary) or localStorage (fallback)
+ */
+export const saveCompaniesToServer = async (companies: Company[]): Promise<void> => {
+  if (USE_SUPABASE) {
+    try {
+      const rows = companies.map(c => companyToCompanyRow(c));
+
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('companies')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) {
+          if (upsertError.message?.includes('does not exist')) {
+            console.warn('⚠️ Bảng companies chưa tồn tại. Lưu vào localStorage...');
+            throw upsertError;
+          }
+          throw upsertError;
+        }
+      }
+
+      if (companies.length > 0) {
+        const currentIds = companies.map(c => c.id);
+        const { data: allCompanies, error: selectError } = await supabase
+          .from('companies')
+          .select('id');
+
+        if (selectError && selectError.message?.includes('does not exist')) {
+          console.warn('⚠️ Bảng companies chưa tồn tại. Bỏ qua xóa records.');
+        } else if (allCompanies) {
+          const idsToDelete = allCompanies
+            .map((c: any) => c.id)
+            .filter((id: string) => !currentIds.includes(id));
+
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('companies')
+              .delete()
+              .in('id', idsToDelete);
+            if (deleteError) console.warn('Lỗi khi xóa companies cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('companies')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        if (deleteError && !deleteError.message?.includes('does not exist')) {
+          console.warn('Lỗi khi xóa tất cả companies:', deleteError);
+        }
+      }
+
+      try {
+        localStorage.setItem('debt_companies', JSON.stringify(companies));
+      } catch (e) {
+        console.warn('Không thể lưu companies vào localStorage:', e);
+      }
+
+      return;
+    } catch (error: any) {
+      console.error('❌ Lỗi khi lưu companies vào Supabase:', error);
+      if (error?.message?.includes('does not exist')) {
+        console.warn('⚠️ Bảng companies chưa tồn tại. Lưu vào localStorage. Vui lòng chạy migration SQL trong Supabase.');
+      }
+    }
+  }
+
+  // Fallback to localStorage
+  try {
+    localStorage.setItem('debt_companies', JSON.stringify(companies));
+    console.log('✅ Đã lưu companies vào localStorage');
+  } catch (localError) {
+    console.error('Lỗi khi lưu companies vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
+ * Load company income records from Supabase (primary) or localStorage (fallback)
+ */
+export const loadCompanyIncomeRecordsFromServer = async (): Promise<CompanyIncomeRecord[]> => {
+  if (USE_SUPABASE) {
+    try {
+      const { data, error } = await supabase
+        .from('company_income_records')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const records = data.map(companyIncomeRecordRowToCompanyIncomeRecord);
+
+        try {
+          localStorage.setItem('debt_company_income_records', JSON.stringify(records));
+        } catch (e) {
+          console.warn('Không thể lưu company income records vào localStorage:', e);
+        }
+
+        // Migrate từ localStorage nếu database trống
+        if (records.length === 0) {
+          const localSaved = localStorage.getItem('debt_company_income_records');
+          if (localSaved) {
+            try {
+              const localRecords = JSON.parse(localSaved);
+              if (Array.isArray(localRecords) && localRecords.length > 0) {
+                await saveCompanyIncomeRecordsToServer(localRecords);
+                return localRecords;
+              }
+            } catch (e) {
+              console.error('Lỗi khi migrate company income records từ localStorage:', e);
+            }
+          }
+        }
+
+        return records;
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải company income records từ Supabase:', error);
+    }
+  }
+
+  // Fallback to localStorage
+  const saved = localStorage.getItem('debt_company_income_records');
+  if (saved) {
+    try {
+      const records = JSON.parse(saved);
+      if (Array.isArray(records)) return records;
+    } catch (error) {
+      console.error('Lỗi khi đọc company income records từ localStorage:', error);
+    }
+  }
+
+  return [];
+};
+
+/**
+ * Save company income records to Supabase (primary) or localStorage (fallback)
+ */
+export const saveCompanyIncomeRecordsToServer = async (records: CompanyIncomeRecord[]): Promise<void> => {
+  if (USE_SUPABASE) {
+    try {
+      const rows = records.map(r => companyIncomeRecordToCompanyIncomeRecordRow(r));
+
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('company_income_records')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) {
+          if (upsertError.message?.includes('does not exist')) {
+            console.warn('⚠️ Bảng company_income_records chưa tồn tại. Lưu vào localStorage...');
+            throw upsertError;
+          }
+          throw upsertError;
+        }
+      }
+
+      if (records.length > 0) {
+        const currentIds = records.map(r => r.id);
+        const { data: allRecords, error: selectError } = await supabase
+          .from('company_income_records')
+          .select('id');
+
+        if (selectError && selectError.message?.includes('does not exist')) {
+          console.warn('⚠️ Bảng company_income_records chưa tồn tại. Bỏ qua xóa records.');
+        } else if (allRecords) {
+          const idsToDelete = allRecords
+            .map((r: any) => r.id)
+            .filter((id: string) => !currentIds.includes(id));
+
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('company_income_records')
+              .delete()
+              .in('id', idsToDelete);
+            if (deleteError) console.warn('Lỗi khi xóa company income records cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('company_income_records')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        if (deleteError && !deleteError.message?.includes('does not exist')) {
+          console.warn('Lỗi khi xóa tất cả company income records:', deleteError);
+        }
+      }
+
+      try {
+        localStorage.setItem('debt_company_income_records', JSON.stringify(records));
+      } catch (e) {
+        console.warn('Không thể lưu company income records vào localStorage:', e);
+      }
+
+      return;
+    } catch (error: any) {
+      console.error('❌ Lỗi khi lưu company income records vào Supabase:', error);
+      if (error?.message?.includes('does not exist')) {
+        console.warn('⚠️ Bảng company_income_records chưa tồn tại. Lưu vào localStorage. Vui lòng chạy migration SQL trong Supabase.');
+      }
+    }
+  }
+
+  // Fallback to localStorage
+  try {
+    localStorage.setItem('debt_company_income_records', JSON.stringify(records));
+    console.log('✅ Đã lưu company income records vào localStorage');
+  } catch (localError) {
+    console.error('Lỗi khi lưu company income records vào localStorage:', localError);
+    throw new Error('Không thể lưu dữ liệu');
+  }
+};
+
+/**
+ * Load BHXH adjustment indices (hệ số trượt giá) from Supabase (primary) or localStorage (fallback)
+ */
+export const loadBhxhAdjustmentIndicesFromServer = async (): Promise<BhxhAdjustmentIndex[]> => {
+  if (USE_SUPABASE) {
+    try {
+      const { data, error } = await supabase
+        .from('bhxh_adjustment_indices')
+        .select('*')
+        .order('year', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const indices = data.map(bhxhAdjustmentIndexRowToBhxhAdjustmentIndex);
+        try {
+          localStorage.setItem('debt_bhxh_adjustment_indices', JSON.stringify(indices));
+        } catch (e) {
+          console.warn('Không thể lưu bhxh indices vào localStorage:', e);
+        }
+        return indices;
+      }
+    } catch (error) {
+      console.error('Lỗi khi tải bhxh indices từ Supabase:', error);
+    }
+  }
+
+  const saved = localStorage.getItem('debt_bhxh_adjustment_indices');
+  if (saved) {
+    try {
+      const indices = JSON.parse(saved);
+      if (Array.isArray(indices)) return indices;
+    } catch (error) {
+      console.error('Lỗi khi đọc bhxh indices từ localStorage:', error);
+    }
+  }
+  return [];
+};
+
+/**
+ * Save BHXH adjustment indices to Supabase (primary) or localStorage (fallback)
+ */
+export const saveBhxhAdjustmentIndicesToServer = async (indices: BhxhAdjustmentIndex[]): Promise<void> => {
+  if (USE_SUPABASE) {
+    try {
+      const rows = indices.map(i => bhxhAdjustmentIndexToBhxhAdjustmentIndexRow(i));
+
+      if (rows.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('bhxh_adjustment_indices')
+          .upsert(rows, { onConflict: 'id' });
+
+        if (upsertError) {
+          if (upsertError.message?.includes('does not exist')) {
+            console.warn('⚠️ Bảng bhxh_adjustment_indices chưa tồn tại. Lưu vào localStorage...');
+            throw upsertError;
+          }
+          throw upsertError;
+        }
+      }
+
+      if (indices.length > 0) {
+        const currentIds = indices.map(i => i.id);
+        const { data: allRows, error: selectError } = await supabase
+          .from('bhxh_adjustment_indices')
+          .select('id');
+
+        if (selectError && selectError.message?.includes('does not exist')) {
+          console.warn('⚠️ Bảng bhxh_adjustment_indices chưa tồn tại. Bỏ qua xóa records.');
+        } else if (allRows) {
+          const idsToDelete = allRows
+            .map((r: any) => r.id)
+            .filter((id: string) => !currentIds.includes(id));
+
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('bhxh_adjustment_indices')
+              .delete()
+              .in('id', idsToDelete);
+            if (deleteError) console.warn('Lỗi khi xóa bhxh indices cũ:', deleteError);
+          }
+        }
+      } else {
+        const { error: deleteError } = await supabase
+          .from('bhxh_adjustment_indices')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+        if (deleteError && !deleteError.message?.includes('does not exist')) {
+          console.warn('Lỗi khi xóa tất cả bhxh indices:', deleteError);
+        }
+      }
+
+      try {
+        localStorage.setItem('debt_bhxh_adjustment_indices', JSON.stringify(indices));
+      } catch (e) {
+        console.warn('Không thể lưu bhxh indices vào localStorage:', e);
+      }
+
+      return;
+    } catch (error: any) {
+      console.error('❌ Lỗi khi lưu bhxh indices vào Supabase:', error);
+      if (error?.message?.includes('does not exist')) {
+        console.warn('⚠️ Bảng bhxh_adjustment_indices chưa tồn tại. Lưu vào localStorage. Vui lòng chạy migration SQL trong Supabase.');
+      }
+    }
+  }
+
+  try {
+    localStorage.setItem('debt_bhxh_adjustment_indices', JSON.stringify(indices));
+    console.log('✅ Đã lưu bhxh indices vào localStorage');
+  } catch (localError) {
+    console.error('Lỗi khi lưu bhxh indices vào localStorage:', localError);
     throw new Error('Không thể lưu dữ liệu');
   }
 };

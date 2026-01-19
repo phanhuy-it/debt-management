@@ -3,6 +3,7 @@ import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGri
 import { Loan, LoanType, LoanStatus, CreditCard, FixedExpense, Income, Investment, InvestmentType, Payment } from '../types';
 import { Calendar, TrendingUp, TrendingDown, DollarSign, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
+import { getLoanFirstPaymentMonthStart } from '../utils/dateUtils';
 
 interface StatisticsProps {
   loans: Loan[];
@@ -27,15 +28,20 @@ const isLoanActiveInMonth = (loan: Loan, targetYear: number, targetMonth: number
   if (loan.status !== LoanStatus.ACTIVE) return false;
   
   // Kiểm tra xem tháng được chọn có nằm trong kỳ hạn vay không
-  const startDate = new Date(loan.startDate);
+  const startDate = getLoanFirstPaymentMonthStart(loan);
   const targetDate = new Date(targetYear, targetMonth, 1);
   
   // Tính số tháng từ startDate đến targetDate
   const monthsDiff = (targetDate.getFullYear() - startDate.getFullYear()) * 12 + 
                      (targetDate.getMonth() - startDate.getMonth());
   
-  // Khoản vay active nếu tháng được chọn >= tháng bắt đầu và < tháng bắt đầu + số tháng kỳ hạn
-  return monthsDiff >= 0 && monthsDiff < loan.termMonths;
+  // Khoản vay active nếu tháng được chọn >= kỳ đầu tiên và:
+  // - interestOnly: không giới hạn số tháng (tính tiếp cho tới khi user đánh dấu COMPLETED)
+  // - termMonths > 0: < termMonths
+  if (monthsDiff < 0) return false;
+  if (loan.interestOnly) return true;
+  if (!loan.termMonths || loan.termMonths <= 0) return true;
+  return monthsDiff < loan.termMonths;
 };
 
 // Helper function để format số tiền cho biểu đồ (chia cho 1 triệu)

@@ -17,6 +17,7 @@ interface AddLoanModalProps {
     paidTerms: number;
     amount: number;
     startDate: string;
+    firstPaymentMonthYear?: string;
     interestOnly: boolean;
   }) => void;
 }
@@ -32,6 +33,8 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
   const [newInterestOnly, setNewInterestOnly] = useState(false);
   const [newAmount, setNewAmount] = useState('');
   const [newStartDate, setNewStartDate] = useState(getTodayISO());
+  // input type="month", giá trị dạng "YYYY-MM"
+  const [newFirstPaymentMonthYear, setNewFirstPaymentMonthYear] = useState<string>(() => getTodayISO().slice(0, 7));
 
   useEffect(() => {
     if (isOpen && !newStartDate) {
@@ -50,6 +53,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
     setNewAmount('');
     setNewStartDate(getTodayISO());
     setNewInterestOnly(false);
+    setNewFirstPaymentMonthYear(getTodayISO().slice(0, 7));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -64,6 +68,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
       paidTerms: parseInt(newPaidTerms) || 0,
       amount: parseFloat(newAmount) || 0,
       startDate: newStartDate,
+      firstPaymentMonthYear: (newType === LoanType.BANK || newType === LoanType.APP) ? (newFirstPaymentMonthYear || undefined) : undefined,
       interestOnly: newInterestOnly
     });
     resetForm();
@@ -80,7 +85,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up"
+        className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
@@ -89,7 +94,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           <div className="bg-slate-100 p-1 rounded-lg flex gap-1 mb-4">
             <button
               type="button"
@@ -146,6 +151,32 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
 
           {(newType === LoanType.BANK || newType === LoanType.APP) && (
             <div className="space-y-4 animate-fade-in">
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Ngày vay / Giải ngân</label>
+                  <input
+                    required
+                    type="date"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                    value={newStartDate}
+                    onChange={e => setNewStartDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Kỳ thanh toán đầu tiên (Tháng/Năm)</label>
+                  <input
+                    required
+                    type="month"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                    value={newFirstPaymentMonthYear}
+                    onChange={e => setNewFirstPaymentMonthYear(e.target.value)}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Thống kê theo tháng sẽ bắt đầu tính từ kỳ này.
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <input 
                   type="checkbox" 
@@ -155,7 +186,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
                   className="w-4 h-4 text-amber-600 border-slate-300 rounded focus:ring-amber-500"
                 />
                 <label htmlFor="interestOnly" className="text-sm font-medium text-slate-700 cursor-pointer">
-                  Chỉ trả lãi (số tiền trả hàng tháng không làm giảm gốc)
+                  Chỉ trả lãi
                 </label>
               </div>
 

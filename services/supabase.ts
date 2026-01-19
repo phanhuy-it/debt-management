@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction } from '../types';
+import { Loan, CreditCard, FixedExpense, Income, Lending, Investment, Payment, InvestmentAccount, InvestmentTransaction, Company, CompanyIncomeRecord, BhxhAdjustmentIndex } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -20,6 +20,7 @@ export interface LoanRow {
   monthly_due_date: number | null;
   monthly_payment: number;
   start_date: string | null;
+  first_payment_month_year?: string | null;
   term_months: number;
   status: string;
   notes: string | null;
@@ -119,6 +120,35 @@ export interface InvestmentTransactionRow {
   updated_at: string;
 }
 
+export interface CompanyRow {
+  id: string;
+  name: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyIncomeRecordRow {
+  id: string;
+  company_id: string;
+  month: string; // YYYY-MM
+  net_salary: number | null;
+  bhxh_base: number | null;
+  exclude_bhxh?: boolean | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BhxhAdjustmentIndexRow {
+  id: string;
+  year: number;
+  factor: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Convert database row to app type
 export const loanRowToLoan = (row: LoanRow): Loan => ({
   id: row.id,
@@ -129,6 +159,7 @@ export const loanRowToLoan = (row: LoanRow): Loan => ({
   monthlyDueDate: row.monthly_due_date || 0,
   monthlyPayment: Number(row.monthly_payment),
   startDate: row.start_date || new Date().toISOString(),
+  firstPaymentMonthYear: row.first_payment_month_year || undefined,
   termMonths: row.term_months,
   status: row.status as 'ACTIVE' | 'COMPLETED',
   notes: row.notes || undefined,
@@ -159,15 +190,86 @@ export const fixedExpenseRowToFixedExpense = (row: FixedExpenseRow): FixedExpens
   payments: Array.isArray(row.payments) ? row.payments : []
 });
 
-export const incomeRowToIncome = (row: IncomeRow): Income => ({
-  id: row.id,
-  name: row.name,
-  amount: Number(row.amount),
-  receivedDate: row.received_date,
-  status: row.status as 'ACTIVE' | 'COMPLETED',
-  notes: row.notes || undefined,
-  payments: Array.isArray(row.payments) ? row.payments : []
-});
+const COMPANY_ID_TAG_RE = /\s*\[#companyId:([0-9a-fA-F-]{36})\]\s*$/;
+const EXCLUDE_BHXH_TAG_RE = /\s*\[#excludeBhxh:(true|false|1|0)\]\s*$/i;
+const SALARY_INCOME_PREFIX = 'salary-income:';
+
+function parseIncomeNotes(notes?: string | null): { companyId?: string; excludeBhxh?: boolean; notes?: string } {
+  const raw = notes || undefined;
+  if (!raw) return {};
+
+  // Salary incomes use notes as a stable key; keep it intact.
+  if (raw.startsWith(SALARY_INCOME_PREFIX)) {
+    const companyId = raw.slice(SALARY_INCOME_PREFIX.length).trim();
+    return { companyId: companyId || undefined, notes: raw };
+  }
+
+  let cleaned = raw.trim();
+  let companyId: string | undefined;
+  let excludeBhxh: boolean | undefined;
+
+  // Allow multiple tags at the end, regardless of their order.
+  while (true) {
+    const mExclude = EXCLUDE_BHXH_TAG_RE.exec(cleaned);
+    if (mExclude) {
+      const v = (mExclude[1] || '').toLowerCase();
+      excludeBhxh = v === 'true' || v === '1';
+      cleaned = cleaned.replace(EXCLUDE_BHXH_TAG_RE, '').trim();
+      continue;
+    }
+
+    const mCompany = COMPANY_ID_TAG_RE.exec(cleaned);
+    if (mCompany) {
+      companyId = mCompany[1];
+      cleaned = cleaned.replace(COMPANY_ID_TAG_RE, '').trim();
+      continue;
+    }
+
+    break;
+  }
+
+  return { companyId, excludeBhxh, notes: cleaned || undefined };
+}
+
+function encodeIncomeNotes(income: Pick<Income, 'notes' | 'companyId' | 'excludeBhxh'>): string | null {
+  const raw = income.notes || '';
+
+  // Preserve salary key as-is
+  if (raw.startsWith(SALARY_INCOME_PREFIX)) return raw;
+
+  // Remove existing tags if any (support multiple tags and any order)
+  let cleaned = raw.trim();
+  while (true) {
+    const next = cleaned
+      .replace(COMPANY_ID_TAG_RE, '')
+      .replace(EXCLUDE_BHXH_TAG_RE, '')
+      .trim();
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+
+  const tags: string[] = [];
+  if (income.companyId) tags.push(`[#companyId:${income.companyId}]`);
+  if (income.excludeBhxh) tags.push(`[#excludeBhxh:true]`);
+
+  const out = [cleaned, ...tags].filter(Boolean).join('\n').trim();
+  return out ? out : null;
+}
+
+export const incomeRowToIncome = (row: IncomeRow): Income => {
+  const parsed = parseIncomeNotes(row.notes);
+  return {
+    id: row.id,
+    name: row.name,
+    amount: Number(row.amount),
+    receivedDate: row.received_date,
+    status: row.status as 'ACTIVE' | 'COMPLETED',
+    notes: parsed.notes,
+    companyId: parsed.companyId,
+    excludeBhxh: parsed.excludeBhxh,
+    payments: Array.isArray(row.payments) ? row.payments : []
+  };
+};
 
 export const lendingRowToLending = (row: LendingRow): Lending => ({
   id: row.id,
@@ -203,6 +305,7 @@ export const loanToLoanRow = (loan: Loan): Partial<LoanRow> => ({
   monthly_due_date: loan.monthlyDueDate || null,
   monthly_payment: loan.monthlyPayment,
   start_date: loan.startDate || null,
+  first_payment_month_year: loan.firstPaymentMonthYear || null,
   term_months: loan.termMonths,
   status: loan.status,
   notes: loan.notes || null,
@@ -239,7 +342,7 @@ export const incomeToIncomeRow = (income: Income): Partial<IncomeRow> => ({
   amount: income.amount,
   received_date: income.receivedDate,
   status: income.status,
-  notes: income.notes || null,
+  notes: encodeIncomeNotes(income),
   payments: income.payments || []
 });
 
@@ -307,5 +410,66 @@ export const investmentTransactionToInvestmentTransactionRow = (transaction: Inv
   date: transaction.date,
   status: transaction.status,
   note: transaction.note || null
+});
+
+export const companyRowToCompany = (row: CompanyRow): Company => ({
+  id: row.id,
+  name: row.name,
+  notes: row.notes || undefined,
+  createdAt: row.created_at || undefined
+});
+
+export const companyToCompanyRow = (company: Company): Partial<CompanyRow> => ({
+  id: company.id,
+  name: company.name,
+  notes: company.notes || null
+});
+
+export const companyIncomeRecordRowToCompanyIncomeRecord = (row: CompanyIncomeRecordRow): CompanyIncomeRecord => ({
+  // Supabase/PostgREST may return DECIMAL/NUMERIC as string; normalize to number for calculations.
+  // Keep undefined when value is null/empty/NaN.
+  id: row.id,
+  companyId: row.company_id,
+  month: row.month,
+  netSalary: (() => {
+    const v: any = (row as any).net_salary;
+    if (v == null || v === '') return undefined;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? n : undefined;
+  })(),
+  bhxhBase: (() => {
+    const v: any = (row as any).bhxh_base;
+    if (v == null || v === '') return undefined;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? n : undefined;
+  })(),
+  excludeBhxh: (row as any).exclude_bhxh ?? undefined,
+  note: row.note || undefined,
+  createdAt: row.created_at || undefined
+});
+
+export const companyIncomeRecordToCompanyIncomeRecordRow = (record: CompanyIncomeRecord): Partial<CompanyIncomeRecordRow> => ({
+  id: record.id,
+  company_id: record.companyId,
+  month: record.month,
+  net_salary: record.netSalary ?? null,
+  bhxh_base: record.bhxhBase ?? null,
+  exclude_bhxh: record.excludeBhxh ?? null,
+  note: record.note || null
+});
+
+export const bhxhAdjustmentIndexRowToBhxhAdjustmentIndex = (row: BhxhAdjustmentIndexRow): BhxhAdjustmentIndex => ({
+  id: row.id,
+  year: Number(row.year),
+  factor: Number(row.factor),
+  note: row.note || undefined,
+  createdAt: row.created_at || undefined
+});
+
+export const bhxhAdjustmentIndexToBhxhAdjustmentIndexRow = (idx: BhxhAdjustmentIndex): Partial<BhxhAdjustmentIndexRow> => ({
+  id: idx.id,
+  year: idx.year,
+  factor: idx.factor,
+  note: idx.note || null
 });
 

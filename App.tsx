@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3, HandCoins, MoreVertical, ChevronUp } from 'lucide-react';
-import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income, Lending, Investment, InvestmentAccount, InvestmentTransaction } from './types';
+import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income, Lending, Investment, InvestmentAccount, InvestmentTransaction, Company, CompanyIncomeRecord } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
 import CalendarView from './components/Calendar';
@@ -13,7 +13,7 @@ import InvestmentList from './components/InvestmentList';
 import PaymentRoadmap from './components/PaymentRoadmap';
 import Statistics from './components/Statistics';
 import Login from './components/Login';
-import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, loadInvestmentAccountsFromServer, saveInvestmentAccountsToServer, loadInvestmentTransactionsFromServer, saveInvestmentTransactionsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadCompaniesFromServer, saveCompaniesToServer, loadCompanyIncomeRecordsFromServer, saveCompanyIncomeRecordsToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, loadInvestmentAccountsFromServer, saveInvestmentAccountsToServer, loadInvestmentTransactionsFromServer, saveInvestmentTransactionsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID } from './utils/uuid';
 import { AmountVisibilityProvider, useAmountVisibility } from './components/AmountVisibility';
 import { useDataManagement } from './hooks/useDataManagement';
@@ -58,6 +58,9 @@ function AppContent({ handleLogout }: AppContentProps) {
     creditCards,
     fixedExpenses,
     incomes,
+    companies,
+    companyIncomeRecords,
+    bhxhAdjustmentIndices,
     lendings,
     investmentAccounts,
     investmentTransactions,
@@ -66,6 +69,9 @@ function AppContent({ handleLogout }: AppContentProps) {
     setCreditCards,
     setFixedExpenses,
     setIncomes,
+    setCompanies,
+    setCompanyIncomeRecords,
+    setBhxhAdjustmentIndices,
     setLendings,
     setInvestmentAccounts,
     setInvestmentTransactions
@@ -151,6 +157,7 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [incomeName, setIncomeName] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
   const [incomeReceivedDate, setIncomeReceivedDate] = useState<number>(1);
+  const [incomeCompanyId, setIncomeCompanyId] = useState<string>('');
 
   // Lending form fields
   const [lendingName, setLendingName] = useState('');
@@ -174,6 +181,7 @@ function AppContent({ handleLogout }: AppContentProps) {
     paidTerms: number;
     amount: number;
     startDate: string;
+    firstPaymentMonthYear?: string;
     interestOnly: boolean;
   }) => {
     let loanAmount = 0;
@@ -230,7 +238,11 @@ function AppContent({ handleLogout }: AppContentProps) {
       originalAmount: loanAmount,
       monthlyDueDate: monthlyDueDate,
       monthlyPayment: monthlyPayment,
-      startDate: formData.type === LoanType.PERSONAL && formData.startDate ? formData.startDate : new Date().toISOString(),
+      startDate: formData.startDate || new Date().toISOString(),
+      firstPaymentMonthYear:
+        (formData.type === LoanType.BANK || formData.type === LoanType.APP)
+          ? (formData.firstPaymentMonthYear || (formData.startDate ? formData.startDate.slice(0, 7) : undefined))
+          : undefined,
       termMonths: term,
       payments: payments,
       status: LoanStatus.ACTIVE,
@@ -259,6 +271,7 @@ function AppContent({ handleLogout }: AppContentProps) {
     setIncomeName('');
     setIncomeAmount('');
     setIncomeReceivedDate(1);
+    setIncomeCompanyId('');
   };
 
   const resetLendingForm = () => {
@@ -433,51 +446,52 @@ function AppContent({ handleLogout }: AppContentProps) {
       amount: parseFloat(incomeAmount) || 0,
       receivedDate: incomeReceivedDate,
       payments: [],
-      status: LoanStatus.ACTIVE
+      status: LoanStatus.ACTIVE,
+      companyId: incomeCompanyId || undefined
     };
 
-    setIncomes([...incomes, newIncome]);
+    setIncomes(prev => [...prev, newIncome]);
     setShowAddIncomeModal(false);
     resetIncomeForm();
   };
 
   const handleDeleteIncome = (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa nguồn thu nhập này không?')) {
-      setIncomes(incomes.filter(i => i.id !== id));
+      setIncomes(prev => prev.filter(i => i.id !== id));
     }
   };
 
   const handleAddIncomePayment = (incomeId: string, payment: Payment) => {
-    setIncomes(incomes.map(income => {
-      if (income.id === incomeId) {
-        return { 
-          ...income, 
-          payments: [...income.payments, payment]
-        };
-      }
-      return income;
-    }));
+    setIncomes(prev =>
+      prev.map(income => {
+        if (income.id === incomeId) {
+          return { ...income, payments: [...income.payments, payment] };
+        }
+        return income;
+      })
+    );
   };
 
   const handleRemoveIncomePayment = (incomeId: string, paymentIds: string[]) => {
-    setIncomes(incomes.map(income => {
-      if (income.id === incomeId) {
-        return { 
-          ...income, 
-          payments: income.payments.filter(p => !paymentIds.includes(p.id))
-        };
-      }
-      return income;
-    }));
+    setIncomes(prev =>
+      prev.map(income => {
+        if (income.id === incomeId) {
+          return { ...income, payments: income.payments.filter(p => !paymentIds.includes(p.id)) };
+        }
+        return income;
+      })
+    );
   };
 
   const handleUpdateIncome = (id: string, updatedIncome: Partial<Income>) => {
-    setIncomes(incomes.map(income => {
-      if (income.id === id) {
-        return { ...income, ...updatedIncome };
-      }
-      return income;
-    }));
+    setIncomes(prev =>
+      prev.map(income => {
+        if (income.id === id) {
+          return { ...income, ...updatedIncome };
+        }
+        return income;
+      })
+    );
   };
 
   // Lending Handlers
@@ -660,7 +674,14 @@ function AppContent({ handleLogout }: AppContentProps) {
     try {
       const importedData = await importDataFromFile(file);
       
-        const totalItems = importedData.loans.length + importedData.creditCards.length + importedData.fixedExpenses.length + (importedData.incomes?.length || 0) + (importedData.lendings?.length || 0);
+        const totalItems =
+          importedData.loans.length +
+          importedData.creditCards.length +
+          importedData.fixedExpenses.length +
+          (importedData.incomes?.length || 0) +
+          (importedData.lendings?.length || 0) +
+          (importedData.companies?.length || 0) +
+          (importedData.companyIncomeRecords?.length || 0);
         
         if (totalItems === 0) {
           alert('File không chứa dữ liệu nào');
@@ -674,33 +695,36 @@ function AppContent({ handleLogout }: AppContentProps) {
         if (importedData.fixedExpenses.length > 0) parts.push(`${importedData.fixedExpenses.length} chi tiêu cố định`);
         if (importedData.incomes && importedData.incomes.length > 0) parts.push(`${importedData.incomes.length} nguồn thu nhập`);
         if (importedData.lendings && importedData.lendings.length > 0) parts.push(`${importedData.lendings.length} khoản cho vay`);
+        if (importedData.companies && importedData.companies.length > 0) parts.push(`${importedData.companies.length} công ty`);
+        if (importedData.companyIncomeRecords && importedData.companyIncomeRecords.length > 0) parts.push(`${importedData.companyIncomeRecords.length} lịch sử lương/BHXH`);
         
-        const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length + lendings.length;
+        const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length + lendings.length + companies.length + companyIncomeRecords.length;
       const confirmMessage = currentTotal > 0
         ? `Bạn đang có ${currentTotal} mục dữ liệu. Import sẽ thay thế toàn bộ dữ liệu hiện tại bằng:\n${parts.join(', ')}\n\nBạn có chắc chắn?`
         : `Import ${parts.join(', ')} từ file?\n\nLưu ý: ID sẽ được tự động chuyển đổi sang UUID format.`;
 
       if (window.confirm(confirmMessage)) {
         // Update all data
-        if (importedData.loans.length > 0) {
-          setLoans(importedData.loans);
-          await saveLoansToServer(importedData.loans);
-        }
-        
-        if (importedData.creditCards.length > 0) {
-          setCreditCards(importedData.creditCards);
-          await saveCreditCardsToServer(importedData.creditCards);
-        }
-        
-        if (importedData.fixedExpenses.length > 0) {
-          setFixedExpenses(importedData.fixedExpenses);
-          await saveFixedExpensesToServer(importedData.fixedExpenses);
-        }
-        
-        if (importedData.lendings && importedData.lendings.length > 0) {
-          setLendings(importedData.lendings);
-          await saveLendingsToServer(importedData.lendings);
-        }
+        setLoans(importedData.loans);
+        await saveLoansToServer(importedData.loans);
+
+        setCreditCards(importedData.creditCards);
+        await saveCreditCardsToServer(importedData.creditCards);
+
+        setFixedExpenses(importedData.fixedExpenses);
+        await saveFixedExpensesToServer(importedData.fixedExpenses);
+
+        setIncomes(importedData.incomes || []);
+        await saveIncomeToServer(importedData.incomes || []);
+
+        setLendings(importedData.lendings || []);
+        await saveLendingsToServer(importedData.lendings || []);
+
+        setCompanies(importedData.companies || []);
+        await saveCompaniesToServer(importedData.companies || []);
+
+        setCompanyIncomeRecords(importedData.companyIncomeRecords || []);
+        await saveCompanyIncomeRecordsToServer(importedData.companyIncomeRecords || []);
         
         setShowImportModal(false);
         alert(`✅ Đã import thành công:\n${parts.join('\n')}\n\nID đã được tự động chuyển đổi sang UUID format.`);
@@ -833,7 +857,47 @@ function AppContent({ handleLogout }: AppContentProps) {
           <Route path="/lendings" element={<LendingList lendings={lendings} onDeleteLending={handleDeleteLending} onAddPayment={handleAddLendingPayment} onRemovePayment={handleRemoveLendingPayment} onAddLendingAmount={handleAddLendingAmount} onUpdateLending={handleUpdateLending} />} />
           <Route path="/credit-cards" element={<CreditCardList creditCards={creditCards} onDeleteCard={handleDeleteCreditCard} onAddPayment={handleAddCardPayment} onRemovePayment={handleRemoveCardPayment} onUpdateCard={handleUpdateCreditCard} />} />
           <Route path="/expenses" element={<FixedExpenseList fixedExpenses={fixedExpenses} onDeleteExpense={handleDeleteFixedExpense} onAddPayment={handleAddExpensePayment} onRemovePayment={handleRemoveExpensePayment} onUpdateExpense={handleUpdateFixedExpense} />} />
-          <Route path="/income" element={<IncomeList incomes={incomes} onDeleteIncome={handleDeleteIncome} onAddPayment={handleAddIncomePayment} onRemovePayment={handleRemoveIncomePayment} onUpdateIncome={handleUpdateIncome} onAddIncome={(income) => setIncomes([...incomes, income])} />} />
+          <Route
+            path="/income"
+            element={
+              <IncomeList
+                incomes={incomes}
+                companies={companies}
+                companyIncomeRecords={companyIncomeRecords}
+                bhxhAdjustmentIndices={bhxhAdjustmentIndices}
+                onDeleteIncome={handleDeleteIncome}
+                onAddPayment={handleAddIncomePayment}
+                onRemovePayment={handleRemoveIncomePayment}
+                onUpdateIncome={handleUpdateIncome}
+                onAddIncome={(income) => setIncomes(prev => [...prev, income])}
+                onAddCompany={(company) => setCompanies([...companies, company])}
+                onUpdateCompany={(id, updatedCompany) =>
+                  setCompanies(companies.map(c => (c.id === id ? { ...c, ...updatedCompany } : c)))
+                }
+                onDeleteCompany={(id) => {
+                  setCompanies(companies.filter(c => c.id !== id));
+                  setCompanyIncomeRecords(companyIncomeRecords.filter(r => r.companyId !== id));
+                }}
+                onAddCompanyIncomeRecord={(record) => setCompanyIncomeRecords([...companyIncomeRecords, record])}
+                onUpdateCompanyIncomeRecord={(id, updatedRecord) =>
+                  setCompanyIncomeRecords(companyIncomeRecords.map(r => (r.id === id ? { ...r, ...updatedRecord } : r)))
+                }
+                onDeleteCompanyIncomeRecord={(id) => setCompanyIncomeRecords(companyIncomeRecords.filter(r => r.id !== id))}
+                onUpsertBhxhAdjustmentIndex={(year, factor, note) => {
+                  setBhxhAdjustmentIndices(prev => {
+                    const existing = prev.find(x => x.year === year);
+                    if (existing) {
+                      return prev.map(x => (x.id === existing.id ? { ...x, year, factor, note } : x));
+                    }
+                    return [...prev, { id: generateUUID(), year, factor, note, createdAt: new Date().toISOString() }];
+                  });
+                }}
+                onDeleteBhxhAdjustmentIndex={(id) =>
+                  setBhxhAdjustmentIndices(bhxhAdjustmentIndices.filter(x => x.id !== id))
+                }
+              />
+            }
+          />
           <Route path="/investments" element={<InvestmentList accounts={investmentAccounts} transactions={investmentTransactions} onAddAccount={handleAddInvestmentAccount} onUpdateAccount={handleUpdateInvestmentAccount} onDeleteAccount={handleDeleteInvestmentAccount} onAddTransaction={handleAddInvestmentTransaction} onUpdateTransaction={handleUpdateInvestmentTransaction} onDeleteTransaction={handleDeleteInvestmentTransaction} />} />
           <Route path="/calendar" element={<CalendarView loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} />} />
           <Route path="/roadmap" element={<PaymentRoadmap loans={loans} />} />
@@ -1358,6 +1422,22 @@ function AppContent({ handleLogout }: AppContentProps) {
                   Tên nguồn thu nhập
                 </label>
                 <input required type="text" placeholder="VD: Lương, Freelance" className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" value={incomeName} onChange={e => setIncomeName(e.target.value)} />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Công ty (Tùy chọn)
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                  value={incomeCompanyId}
+                  onChange={e => setIncomeCompanyId(e.target.value)}
+                >
+                  <option value="">-- Không chọn --</option>
+                  {[...companies].sort((a, b) => a.name.localeCompare(b.name)).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
               </div>
 
               <div>

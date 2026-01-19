@@ -9,11 +9,23 @@ export enum LoanStatus {
   COMPLETED = 'COMPLETED'
 }
 
+export type PaymentMeta =
+  | {
+      type: 'SALARY';
+      companyId: string;
+      month: string; // "YYYY-MM"
+    }
+  | {
+      type: string;
+      [key: string]: any;
+    };
+
 export interface Payment {
   id: string;
   date: string;
   amount: number;
   note?: string;
+  meta?: PaymentMeta;
 }
 
 export interface Loan {
@@ -27,6 +39,12 @@ export interface Loan {
   monthlyDueDate: number; // Ngày thanh toán hàng tháng (1-31)
   monthlyPayment: number; // Số tiền phải trả hàng tháng
   startDate: string;
+  /**
+   * Kỳ thanh toán đầu tiên (tháng/năm) cho khoản vay trả góp.
+   * Dùng để thống kê theo đúng tháng thực tế. Format: "YYYY-MM".
+   * Nếu không có, sẽ fallback theo tháng của startDate.
+   */
+  firstPaymentMonthYear?: string;
   termMonths: number; // Kỳ hạn (tháng)
   payments: Payment[];
   status: LoanStatus;
@@ -65,6 +83,16 @@ export interface Income {
   payments: Payment[]; // Lịch sử nhận tiền
   status: LoanStatus;
   notes?: string;
+  /**
+   * Optional: gắn thu nhập với công ty (dùng cho UI/ghi nhận).
+   * Lưu trữ bền vững: sẽ được encode vào notes khi lưu (không yêu cầu migrate DB).
+   */
+  companyId?: string;
+  /**
+   * Optional: không tính thu nhập này vào BHXH (dùng cho UI/ghi nhận).
+   * Lưu trữ bền vững: sẽ được encode vào notes khi lưu (không yêu cầu migrate DB).
+   */
+  excludeBhxh?: boolean;
 }
 
 export interface Lending {
@@ -124,4 +152,51 @@ export interface DashboardStats {
   totalRemaining: number;
   countActive: number;
   countCompleted: number;
+}
+
+/**
+ * Company & BHXH (Social Insurance) tracking
+ * Used in /income page to track salary history and BHXH contribution base.
+ */
+export interface Company {
+  id: string;
+  name: string; // Tên công ty
+  notes?: string;
+  createdAt?: string; // ISO string
+}
+
+/**
+ * Monthly salary/BHXH record for a company.
+ * month format: "YYYY-MM"
+ */
+export interface CompanyIncomeRecord {
+  id: string;
+  companyId: string;
+  month: string; // "YYYY-MM"
+  /**
+   * Thực nhận (lương net) trong tháng (tùy chọn)
+   */
+  netSalary?: number;
+  /**
+   * Mức lương đóng BHXH trong tháng (tùy chọn)
+   */
+  bhxhBase?: number;
+  /**
+   * Nếu true: tháng này không tính vào quá trình BHXH (bỏ qua khi tính ước tính BHXH).
+   */
+  excludeBhxh?: boolean;
+  note?: string;
+  createdAt?: string; // ISO string
+}
+
+/**
+ * BHXH adjustment / inflation index by year (hệ số trượt giá / hệ số điều chỉnh).
+ * factor is a multiplier (e.g. 1.12).
+ */
+export interface BhxhAdjustmentIndex {
+  id: string;
+  year: number;
+  factor: number;
+  note?: string;
+  createdAt?: string; // ISO string
 }

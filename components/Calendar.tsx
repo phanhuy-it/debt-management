@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Loan, LoanType, CreditCard, FixedExpense } from '../types';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, DollarSign, CreditCard as CreditCardIcon, Home, X } from 'lucide-react';
 import { Amount } from './AmountVisibility';
+import { isLoanPaymentDueInMonth } from '../utils/dateUtils';
 
 interface CalendarProps {
   loans: Loan[];
@@ -81,7 +82,8 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
       const dueLoans = loans.filter(loan => 
         (loan.type === LoanType.BANK || loan.type === LoanType.APP) && 
         loan.status === 'ACTIVE' &&
-        loan.monthlyDueDate === day
+        loan.monthlyDueDate === day &&
+        isLoanPaymentDueInMonth(loan, currentYear, currentMonth)
       );
       
       // Tìm các thẻ tín dụng đến hạn vào ngày này
@@ -139,8 +141,11 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
 
   // Tính tổng tiền đến hạn trong tháng
   const totalDueThisMonth = useMemo(() => {
+    const now = new Date(currentYear, currentMonth, 1);
+    const year = now.getFullYear();
+    const month = now.getMonth();
     const loanAmount = loans
-      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.status === 'ACTIVE')
+      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && isLoanPaymentDueInMonth(loan, year, month))
       .reduce((sum, loan) => sum + loan.monthlyPayment, 0);
     
     const cardAmount = creditCards
@@ -168,6 +173,7 @@ const Calendar: React.FC<CalendarProps> = ({ loans, creditCards, fixedExpenses }
       .filter(loan => 
         (loan.type === LoanType.BANK || loan.type === LoanType.APP) && 
         loan.status === 'ACTIVE' &&
+        isLoanPaymentDueInMonth(loan, currentYear, currentMonth) &&
         loan.monthlyDueDate >= weekStart && 
         loan.monthlyDueDate <= weekEnd &&
         loan.monthlyDueDate >= currentDay

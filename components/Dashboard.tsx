@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, Ca
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, InvestmentType, LoanStatus, Payment } from '../types';
 import { generateUUID } from '../utils/uuid';
 import { isBorrowPayment } from '../utils/constants';
-import { isCurrentMonthPaid } from '../utils/dateUtils';
+import { isCurrentMonthPaid, isLoanPaymentDueInMonth } from '../utils/dateUtils';
 import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 import { getVietnameseLunarDate } from '../utils/lunarCalendar';
@@ -68,12 +68,16 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const nextMonthStartDay = currentDay + 10 > daysInCurrentMonth ? 1 : currentDay + 10;
     const nextMonthEndDay = currentDay + 10 > daysInCurrentMonth ? (currentDay + 10 - daysInCurrentMonth) : 0;
+    const nextMonthIndex = (currentMonth + 1) % 12;
+    const nextMonthYear = currentYear + (currentMonth === 11 ? 1 : 0);
 
     // Khoản vay ngân hàng
     loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
+      const isDueThisMonth = isLoanPaymentDueInMonth(loan, currentYear, currentMonth);
+      const isDueNextMonth = isLoanPaymentDueInMonth(loan, nextMonthYear, nextMonthIndex);
       const isPaid = checkPaid(loan.payments.filter(p => !isBorrowPayment(p.id, p.note)));
 
-      if (!isPaid) {
+      if (isDueThisMonth && !isPaid) {
         // Chưa thanh toán tháng này
         result.push({
           id: loan.id,
@@ -85,32 +89,30 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           provider: loan.provider,
           isNextMonth: false
         });
-      } else {
-        // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
-        if (nextMonthEndDay > 0) {
-          // Có ngày của tháng kế tiếp trong 10 ngày tới
-          if (loan.monthlyDueDate <= nextMonthEndDay) {
-            result.push({
-              id: loan.id,
-              name: loan.name,
-              type: 'loan',
-              loanType: LoanType.BANK,
-              amount: loan.monthlyPayment,
-              dueDate: loan.monthlyDueDate,
-              provider: loan.provider,
-              isNextMonth: true
-            });
-          }
-        }
-        // Nếu không vượt qua tháng, không cần thêm các khoản đã thanh toán (vì chúng đã được xử lý ở phần chưa thanh toán)
+      } else if (nextMonthEndDay > 0 && isDueNextMonth && loan.monthlyDueDate <= nextMonthEndDay) {
+        // Có ngày của tháng kế tiếp trong 10 ngày tới và khoản vay có kỳ thanh toán ở tháng kế tiếp
+        // - Nếu tháng này không có kỳ (chưa tới kỳ đầu), vẫn hiển thị để nhắc kỳ đầu sắp tới
+        // - Nếu tháng này có kỳ và đã trả, hiển thị kỳ tháng sau nếu lọt vào 10 ngày tới
+        result.push({
+          id: loan.id,
+          name: loan.name,
+          type: 'loan',
+          loanType: LoanType.BANK,
+          amount: loan.monthlyPayment,
+          dueDate: loan.monthlyDueDate,
+          provider: loan.provider,
+          isNextMonth: true
+        });
       }
     });
 
     // Khoản vay app
     loans.filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0).forEach(loan => {
+      const isDueThisMonth = isLoanPaymentDueInMonth(loan, currentYear, currentMonth);
+      const isDueNextMonth = isLoanPaymentDueInMonth(loan, nextMonthYear, nextMonthIndex);
       const isPaid = checkPaid(loan.payments.filter(p => !isBorrowPayment(p.id, p.note)));
 
-      if (!isPaid) {
+      if (isDueThisMonth && !isPaid) {
         // Chưa thanh toán tháng này
         result.push({
           id: loan.id,
@@ -122,24 +124,18 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           provider: loan.provider,
           isNextMonth: false
         });
-      } else {
-        // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
-        if (nextMonthEndDay > 0) {
-          // Có ngày của tháng kế tiếp trong 10 ngày tới
-          if (loan.monthlyDueDate <= nextMonthEndDay) {
-            result.push({
-              id: loan.id,
-              name: loan.name,
-              type: 'loan',
-              loanType: LoanType.APP,
-              amount: loan.monthlyPayment,
-              dueDate: loan.monthlyDueDate,
-              provider: loan.provider,
-              isNextMonth: true
-            });
-          }
-        }
-        // Nếu không vượt qua tháng, không cần thêm các khoản đã thanh toán (vì chúng đã được xử lý ở phần chưa thanh toán)
+      } else if (nextMonthEndDay > 0 && isDueNextMonth && loan.monthlyDueDate <= nextMonthEndDay) {
+        // Có ngày của tháng kế tiếp trong 10 ngày tới và khoản vay có kỳ thanh toán ở tháng kế tiếp
+        result.push({
+          id: loan.id,
+          name: loan.name,
+          type: 'loan',
+          loanType: LoanType.APP,
+          amount: loan.monthlyPayment,
+          dueDate: loan.monthlyDueDate,
+          provider: loan.provider,
+          isNextMonth: true
+        });
       }
     });
 
@@ -296,25 +292,39 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
+
+    const isInCurrentMonth = (date: string) => {
+      const d = new Date(date);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    };
     
-    // Thu nhập từ Income: tính tất cả các khoản active (sẽ thu trong tháng này)
-    const incomeFromIncomes = incomes
-      .filter(income => income.status === LoanStatus.ACTIVE)
+    // Thu nhập từ Income:
+    // - ACTIVE + amount > 0: coi như thu nhập cố định hàng tháng (kỳ vọng sẽ thu trong tháng)
+    // - COMPLETED hoặc amount === 0: tính theo payments thực nhận trong tháng hiện tại
+    const incomeFromRecurringActive = incomes
+      .filter(income => income.status === LoanStatus.ACTIVE && income.amount > 0)
       .reduce((sum, income) => sum + income.amount, 0);
-    
+
+    const incomeFromPaymentsThisMonth = incomes.reduce((sum, income) => {
+      const shouldCountPayments = income.status === LoanStatus.COMPLETED || income.amount === 0;
+      if (!shouldCountPayments) return sum;
+
+      const monthTotal = income.payments
+        .filter(p => isInCurrentMonth(p.date))
+        .reduce((s, p) => s + p.amount, 0);
+
+      return sum + monthTotal;
+    }, 0);
+
     // Đầu tư: Rút tiền = thu nhập (tính các transaction trong tháng hiện tại)
     const incomeFromWithdraw = investments
-      .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
+      .filter(inv => inv.type === InvestmentType.WITHDRAW)
       .reduce((sum, inv) => {
-        const transactionDate = new Date(inv.date);
-        if (transactionDate.getFullYear() === currentYear && 
-            transactionDate.getMonth() === currentMonth) {
-          return sum + inv.amount;
-        }
+        if (isInCurrentMonth(inv.date)) return sum + inv.amount;
         return sum;
       }, 0);
-    
-    return incomeFromIncomes + incomeFromWithdraw;
+
+    return incomeFromRecurringActive + incomeFromPaymentsThisMonth + incomeFromWithdraw;
   }, [incomes, investments]);
 
   // Tính tổng chi tiêu hàng tháng (tính tất cả các khoản sẽ chi trong tháng hiện tại)
@@ -326,7 +336,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     
     // Khoản vay ngân hàng và app: tính tất cả các khoản active (sẽ chi trong tháng này)
     loans
-      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .filter(loan => (loan.type === LoanType.BANK || loan.type === LoanType.APP) && loan.monthlyPayment > 0 && isLoanPaymentDueInMonth(loan, currentYear, currentMonth))
       .forEach(loan => {
         total += loan.monthlyPayment;
       });
@@ -344,22 +354,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       .forEach(expense => {
         total += expense.amount;
       });
-    
-    // Đầu tư: Nạp tiền = chi tiêu (tính các transaction trong tháng hiện tại)
-    const expensesFromDeposit = investments
-      .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
-      .reduce((sum, inv) => {
-        const transactionDate = new Date(inv.date);
-        if (transactionDate.getFullYear() === currentYear && 
-            transactionDate.getMonth() === currentMonth) {
-          return sum + inv.amount;
-        }
-        return sum;
-      }, 0);
-    total += expensesFromDeposit;
-    
+
+    // Không tính các khoản đầu tư vào chi tiêu tháng
     return total;
-  }, [loans, creditCards, fixedExpenses, investments]);
+  }, [loans, creditCards, fixedExpenses]);
 
   // Tính dư/thiếu
   const monthlyBalance = totalMonthlyIncome - totalMonthlyExpenses;
@@ -368,22 +366,30 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   const currentMonthIncomeCount = useMemo(() => {
     let count = 0;
     
-    // Đếm Income active (sẽ thu trong tháng này)
-    count += incomes.filter(income => income.status === LoanStatus.ACTIVE).length;
-    
-    // Đếm Investment WITHDRAW có transaction trong tháng hiện tại
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
-    
+
+    const isInCurrentMonth = (date: string) => {
+      const d = new Date(date);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    };
+
+    // Đếm Income cố định active (sẽ thu trong tháng này)
+    count += incomes.filter(income => income.status === LoanStatus.ACTIVE && income.amount > 0).length;
+
+    // Đếm các income đã kết thúc (COMPLETED) hoặc đột xuất (amount === 0) có phát sinh thu trong tháng hiện tại
+    count += incomes.filter(income => {
+      const shouldCountPayments = income.status === LoanStatus.COMPLETED || income.amount === 0;
+      if (!shouldCountPayments) return false;
+      return income.payments.some(p => isInCurrentMonth(p.date));
+    }).length;
+
+    // Đếm Investment WITHDRAW có transaction trong tháng hiện tại
     investments
-      .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
+      .filter(inv => inv.type === InvestmentType.WITHDRAW)
       .forEach(inv => {
-        const transactionDate = new Date(inv.date);
-        if (transactionDate.getFullYear() === currentYear && 
-            transactionDate.getMonth() === currentMonth) {
-          count++;
-        }
+        if (isInCurrentMonth(inv.date)) count++;
       });
     
     return count;
@@ -394,7 +400,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     let count = 0;
     
     // Đếm Loan active (sẽ chi trong tháng này)
-    count += loans.filter(l => (l.type === LoanType.BANK || l.type === LoanType.APP) && l.monthlyPayment > 0 && l.status === LoanStatus.ACTIVE).length;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    count += loans.filter(l => (l.type === LoanType.BANK || l.type === LoanType.APP) && l.monthlyPayment > 0 && isLoanPaymentDueInMonth(l, currentYear, currentMonth)).length;
     
     // Đếm CreditCard active (sẽ chi trong tháng này)
     count += creditCards.filter(c => c.paymentAmount > 0 && c.status === LoanStatus.ACTIVE).length;
@@ -402,23 +411,8 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     // Đếm FixedExpense active (sẽ chi trong tháng này)
     count += fixedExpenses.filter(e => e.status === LoanStatus.ACTIVE).length;
     
-    // Đếm Investment DEPOSIT có transaction trong tháng hiện tại
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    
-    investments
-      .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
-      .forEach(inv => {
-        const transactionDate = new Date(inv.date);
-        if (transactionDate.getFullYear() === currentYear && 
-            transactionDate.getMonth() === currentMonth) {
-          count++;
-        }
-      });
-    
     return count;
-  }, [loans, creditCards, fixedExpenses, investments]);
+  }, [loans, creditCards, fixedExpenses]);
 
   // Danh sách các khoản thu nhập trong tháng hiện tại (đã nhóm theo loại)
   const monthlyIncomeListGrouped = useMemo(() => {
@@ -427,44 +421,65 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     const currentMonth = now.getMonth();
     const grouped: Record<string, Array<{ id: string; name: string; amount: number; type: string; provider?: string; date?: string }>> = {};
     
-    // Thu nhập từ Income
+    const isInCurrentMonth = (date: string) => {
+      const d = new Date(date);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    };
+
+    // Thu nhập cố định (ACTIVE)
     incomes
-      .filter(income => income.status === LoanStatus.ACTIVE)
+      .filter(income => income.status === LoanStatus.ACTIVE && income.amount > 0)
       .forEach(income => {
         const type = 'Thu nhập';
-        if (!grouped[type]) {
-          grouped[type] = [];
-        }
+        if (!grouped[type]) grouped[type] = [];
         grouped[type].push({
           id: income.id,
           name: income.name,
           amount: income.amount,
-          type: type,
+          type,
           date: `Ngày ${income.receivedDate}`
+        });
+      });
+
+    // Thu nhập đã kết thúc (COMPLETED) hoặc thu nhập đột xuất (amount === 0): lấy theo payments thực nhận trong tháng
+    incomes
+      .filter(income => income.status === LoanStatus.COMPLETED || income.amount === 0)
+      .forEach(income => {
+        const groupType = income.amount === 0 ? 'Thu nhập đột xuất' : 'Thu nhập đã kết thúc';
+        const monthPayments = income.payments.filter(p => isInCurrentMonth(p.date));
+        if (monthPayments.length === 0) return;
+
+        if (!grouped[groupType]) grouped[groupType] = [];
+
+        monthPayments.forEach(p => {
+          grouped[groupType].push({
+            id: `${income.id}-${p.id}`,
+            name: income.name,
+            amount: p.amount,
+            type: groupType,
+            provider: p.note,
+            date: new Date(p.date).toLocaleDateString('vi-VN')
+          });
         });
       });
     
     // Đầu tư: Rút tiền
     investments
-      .filter(inv => inv.type === InvestmentType.WITHDRAW && inv.status === LoanStatus.ACTIVE)
+      .filter(inv => inv.type === InvestmentType.WITHDRAW)
       .forEach(inv => {
-        const transactionDate = new Date(inv.date);
-        if (transactionDate.getFullYear() === currentYear && 
-            transactionDate.getMonth() === currentMonth) {
-          const type = 'Rút tiền đầu tư';
-          if (!grouped[type]) {
-            grouped[type] = [];
-          }
-          grouped[type].push({
-            id: inv.id,
-            name: inv.name,
-            amount: inv.amount,
-            type: type,
-            date: transactionDate.toLocaleDateString('vi-VN')
-          });
-        }
+        if (!isInCurrentMonth(inv.date)) return;
+        const type = 'Rút tiền đầu tư';
+        if (!grouped[type]) grouped[type] = [];
+        grouped[type].push({
+          id: inv.id,
+          name: inv.name,
+          amount: inv.amount,
+          type,
+          provider: inv.note,
+          date: new Date(inv.date).toLocaleDateString('vi-VN')
+        });
       });
-    
+
     return grouped;
   }, [incomes, investments]);
 
@@ -482,7 +497,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     
     // Khoản vay ngân hàng
     loans
-      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0 && isLoanPaymentDueInMonth(loan, currentYear, currentMonth))
       .forEach(loan => {
         const type = 'Khoản vay ngân hàng';
         if (!grouped[type]) {
@@ -500,7 +515,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     
     // Khoản vay app
     loans
-      .filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0 && loan.status === LoanStatus.ACTIVE)
+      .filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0 && isLoanPaymentDueInMonth(loan, currentYear, currentMonth))
       .forEach(loan => {
         const type = 'Khoản vay app';
         if (!grouped[type]) {
@@ -551,29 +566,8 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         });
       });
     
-    // Đầu tư: Nạp tiền
-    investments
-      .filter(inv => inv.type === InvestmentType.DEPOSIT && inv.status === LoanStatus.ACTIVE)
-      .forEach(inv => {
-        const transactionDate = new Date(inv.date);
-        if (transactionDate.getFullYear() === currentYear && 
-            transactionDate.getMonth() === currentMonth) {
-          const type = 'Nạp tiền đầu tư';
-          if (!grouped[type]) {
-            grouped[type] = [];
-          }
-          grouped[type].push({
-            id: inv.id,
-            name: inv.name,
-            amount: inv.amount,
-            type: type,
-            date: transactionDate.toLocaleDateString('vi-VN')
-          });
-        }
-      });
-    
     return grouped;
-  }, [loans, creditCards, fixedExpenses, investments]);
+  }, [loans, creditCards, fixedExpenses]);
 
   // Danh sách các khoản chi tiêu (flat list để tính tổng)
   const monthlyExpenseList = useMemo(() => {
