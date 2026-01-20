@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Lending, LoanStatus, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
@@ -30,7 +30,14 @@ const LendingList: React.FC<LendingListProps> = ({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>('date');
+  const [sortBy, setSortBy] = useState<SortOption>(() => {
+    try {
+      const saved = localStorage.getItem('lending_sort_by');
+      return saved === 'amount' || saved === 'date' ? saved : 'date';
+    } catch {
+      return 'date';
+    }
+  });
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ACTIVE');
   const [activeTab, setActiveTab] = useState<LendingTab>('INSTALLMENT');
   const [lendingToAdd, setLendingToAdd] = useState<string | null>(null);
@@ -45,6 +52,14 @@ const LendingList: React.FC<LendingListProps> = ({
   const [editMonthlyPayment, setEditMonthlyPayment] = useState('');
   const [editMonthlyDueDate, setEditMonthlyDueDate] = useState<number>(1);
   const [editTermMonths, setEditTermMonths] = useState('');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lending_sort_by', sortBy);
+    } catch {
+      // ignore
+    }
+  }, [sortBy]);
 
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();

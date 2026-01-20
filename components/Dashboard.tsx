@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, Ca
 import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, InvestmentType, LoanStatus, Payment } from '../types';
 import { generateUUID } from '../utils/uuid';
 import { isBorrowPayment } from '../utils/constants';
-import { isCurrentMonthPaid, isLoanPaymentDueInMonth } from '../utils/dateUtils';
+import { isLoanPaymentDueInMonth } from '../utils/dateUtils';
 import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 import { getVietnameseLunarDate } from '../utils/lunarCalendar';
@@ -51,9 +51,13 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     const millions = value / 1000000;
     return `${millions.toFixed(millions >= 10 ? 0 : 1)}M`;
   };
-  // Helper to check if current month is paid (with borrow check)
-  const checkPaid = (payments: Payment[]): boolean => {
-    return isCurrentMonthPaid(payments, isBorrowPayment);
+  // Helper: check if a payment exists in a specific month (filters out borrow records for loans)
+  const isPaidInMonth = (payments: Payment[], year: number, month: number): boolean => {
+    return payments.some(p => {
+      if (isBorrowPayment(p.id, p.note)) return false;
+      const d = new Date(p.date);
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
   };
 
   // Lấy danh sách các khoản thanh toán sắp tới (chưa thanh toán tháng này + đến hạn trong 10 ngày tới)
@@ -75,9 +79,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     loans.filter(loan => loan.type === LoanType.BANK && loan.monthlyPayment > 0).forEach(loan => {
       const isDueThisMonth = isLoanPaymentDueInMonth(loan, currentYear, currentMonth);
       const isDueNextMonth = isLoanPaymentDueInMonth(loan, nextMonthYear, nextMonthIndex);
-      const isPaid = checkPaid(loan.payments.filter(p => !isBorrowPayment(p.id, p.note)));
+      const isPaidThisMonth = isPaidInMonth(loan.payments, currentYear, currentMonth);
+      const isPaidNextMonth = isPaidInMonth(loan.payments, nextMonthYear, nextMonthIndex);
 
-      if (isDueThisMonth && !isPaid) {
+      if (isDueThisMonth && !isPaidThisMonth) {
         // Chưa thanh toán tháng này
         result.push({
           id: loan.id,
@@ -89,7 +94,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           provider: loan.provider,
           isNextMonth: false
         });
-      } else if (nextMonthEndDay > 0 && isDueNextMonth && loan.monthlyDueDate <= nextMonthEndDay) {
+      } else if (
+        nextMonthEndDay > 0 &&
+        isDueNextMonth &&
+        loan.monthlyDueDate <= nextMonthEndDay &&
+        !isPaidNextMonth
+      ) {
         // Có ngày của tháng kế tiếp trong 10 ngày tới và khoản vay có kỳ thanh toán ở tháng kế tiếp
         // - Nếu tháng này không có kỳ (chưa tới kỳ đầu), vẫn hiển thị để nhắc kỳ đầu sắp tới
         // - Nếu tháng này có kỳ và đã trả, hiển thị kỳ tháng sau nếu lọt vào 10 ngày tới
@@ -110,9 +120,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
     loans.filter(loan => loan.type === LoanType.APP && loan.monthlyPayment > 0).forEach(loan => {
       const isDueThisMonth = isLoanPaymentDueInMonth(loan, currentYear, currentMonth);
       const isDueNextMonth = isLoanPaymentDueInMonth(loan, nextMonthYear, nextMonthIndex);
-      const isPaid = checkPaid(loan.payments.filter(p => !isBorrowPayment(p.id, p.note)));
+      const isPaidThisMonth = isPaidInMonth(loan.payments, currentYear, currentMonth);
+      const isPaidNextMonth = isPaidInMonth(loan.payments, nextMonthYear, nextMonthIndex);
 
-      if (isDueThisMonth && !isPaid) {
+      if (isDueThisMonth && !isPaidThisMonth) {
         // Chưa thanh toán tháng này
         result.push({
           id: loan.id,
@@ -124,7 +135,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           provider: loan.provider,
           isNextMonth: false
         });
-      } else if (nextMonthEndDay > 0 && isDueNextMonth && loan.monthlyDueDate <= nextMonthEndDay) {
+      } else if (
+        nextMonthEndDay > 0 &&
+        isDueNextMonth &&
+        loan.monthlyDueDate <= nextMonthEndDay &&
+        !isPaidNextMonth
+      ) {
         // Có ngày của tháng kế tiếp trong 10 ngày tới và khoản vay có kỳ thanh toán ở tháng kế tiếp
         result.push({
           id: loan.id,
@@ -141,9 +157,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Thẻ tín dụng (chỉ nếu có paymentAmount > 0)
     creditCards.filter(card => card.paymentAmount > 0).forEach(card => {
-      const isPaid = checkPaid(card.payments);
+      const isPaidThisMonth = isPaidInMonth(card.payments, currentYear, currentMonth);
+      const isPaidNextMonth = isPaidInMonth(card.payments, nextMonthYear, nextMonthIndex);
 
-      if (!isPaid) {
+      if (!isPaidThisMonth) {
         // Chưa thanh toán tháng này
         result.push({
           id: card.id,
@@ -158,7 +175,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
         if (nextMonthEndDay > 0) {
           // Có ngày của tháng kế tiếp trong 10 ngày tới
-          if (card.dueDate <= nextMonthEndDay) {
+          if (card.dueDate <= nextMonthEndDay && !isPaidNextMonth) {
             result.push({
               id: card.id,
               name: card.name,
@@ -176,9 +193,10 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
     // Chi tiêu cố định
     fixedExpenses.forEach(expense => {
-      const isPaid = checkPaid(expense.payments);
+      const isPaidThisMonth = isPaidInMonth(expense.payments, currentYear, currentMonth);
+      const isPaidNextMonth = isPaidInMonth(expense.payments, nextMonthYear, nextMonthIndex);
 
-      if (!isPaid) {
+      if (!isPaidThisMonth) {
         // Chưa thanh toán tháng này
         result.push({
           id: expense.id,
@@ -192,7 +210,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
         // Đã thanh toán tháng này, kiểm tra xem có đến hạn trong 10 ngày tới không
         if (nextMonthEndDay > 0) {
           // Có ngày của tháng kế tiếp trong 10 ngày tới
-          if (expense.dueDate <= nextMonthEndDay) {
+          if (expense.dueDate <= nextMonthEndDay && !isPaidNextMonth) {
             result.push({
               id: expense.id,
               name: expense.name,
@@ -881,11 +899,35 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   const handlePayment = () => {
     if (!selectedExpense) return;
 
+    const now = new Date();
+    const nowLabel = now.toLocaleDateString('vi-VN');
+
+    // If this item represents "next month" (within the 10-day window), record the payment in next month
+    // so it won't keep showing as unpaid for that period.
+    let paymentDate = now.toISOString();
+    let paymentNote = `Thanh toán hàng tháng - ${nowLabel}`;
+
+    if (selectedExpense.isNextMonth) {
+      const currentMonthIndex = now.getMonth();
+      const currentYear = now.getFullYear();
+      const nextMonthIndex = (currentMonthIndex + 1) % 12;
+      const nextMonthYear = currentYear + (currentMonthIndex === 11 ? 1 : 0);
+
+      const daysInNextMonth = new Date(nextMonthYear, nextMonthIndex + 1, 0).getDate();
+      const dueDay = Math.min(Math.max(1, selectedExpense.dueDate), daysInNextMonth);
+
+      const targetDate = new Date(nextMonthYear, nextMonthIndex, dueDay, 12, 0, 0, 0);
+      const targetMonthLabel = targetDate.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+
+      paymentDate = targetDate.toISOString();
+      paymentNote = `Thanh toán trước hạn - ${targetMonthLabel} (thực hiện ${nowLabel})`;
+    }
+
     const payment: Payment = {
       id: generateUUID(),
-      date: new Date().toISOString(),
+      date: paymentDate,
       amount: selectedExpense.amount,
-      note: `Thanh toán hàng tháng - ${new Date().toLocaleDateString('vi-VN')}`
+      note: paymentNote
     };
 
     if (selectedExpense.type === 'loan') {
@@ -1557,8 +1599,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                     <div className="bg-slate-50 rounded-lg p-3">
                       <p className="text-xs text-slate-500 mb-1">Loại</p>
                       <p className="font-medium text-slate-900">
-                        {selectedExpense.type === 'loan' 
-                          ? 'Khoản vay ngân hàng'
+                        {selectedExpense.type === 'loan'
+                          ? (selectedExpense.loanType === LoanType.APP
+                              ? 'Khoản vay app'
+                              : selectedExpense.loanType === LoanType.PERSONAL
+                              ? 'Khoản vay người thân'
+                              : 'Khoản vay ngân hàng')
                           : selectedExpense.type === 'creditCard'
                           ? 'Thẻ tín dụng'
                           : 'Chi tiêu cố định'}

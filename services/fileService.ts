@@ -7,6 +7,9 @@ const USE_SUPABASE = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VIT
 
 // Local cache / sync helpers (used to avoid cross-device clobbering)
 const LS_LOANS = 'debt_loans';
+// When true, local changes exist that failed to sync to Supabase.
+// On next load, prefer local cache to avoid losing user actions (e.g. payments).
+const LS_LOANS_DIRTY = 'debt_loans_dirty';
 // Snapshot of remote ids captured at last successful Supabase load.
 // Used to detect *intentional deletes* without deleting records added from other devices after our last load.
 const LS_LOANS_REMOTE_IDS = 'debt_loans_remote_ids';
@@ -17,6 +20,23 @@ const LS_LOANS_REMOTE_IDS = 'debt_loans_remote_ids';
 export const loadLoansFromServer = async (): Promise<Loan[]> => {
   // Ưu tiên Supabase nếu được cấu hình
   if (USE_SUPABASE) {
+    // If we previously failed to sync to Supabase, prefer local cache first.
+    // This prevents "I paid but it didn't save" when Supabase rejects writes (RLS/schema mismatch).
+    try {
+      const dirty = localStorage.getItem(LS_LOANS_DIRTY) === 'true';
+      if (dirty) {
+        const saved = localStorage.getItem(LS_LOANS);
+        if (saved) {
+          const localLoans = JSON.parse(saved);
+          if (Array.isArray(localLoans)) {
+            return localLoans as Loan[];
+          }
+        }
+      }
+    } catch (e) {
+      // ignore localStorage issues, continue with Supabase
+    }
+
     try {
       const { data, error } = await supabase
         .from('loans')
@@ -26,7 +46,35 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
       if (error) throw error;
 
       if (data) {
-        const loans = data.map(loanRowToLoan);
+        let loans = data.map(loanRowToLoan);
+
+        // Merge in certain locally-cached fields if Supabase doesn't return them.
+        // This protects against cases where optional fields (e.g. firstPaymentMonthYear) were not persisted
+        // due to schema mismatch / older rows / partial migration, causing "F5 -> phải thanh toán ngay".
+        try {
+          const localSaved = localStorage.getItem(LS_LOANS);
+          if (localSaved) {
+            const localLoans = JSON.parse(localSaved);
+            if (Array.isArray(localLoans)) {
+              const byId = new Map<string, any>();
+              for (const l of localLoans) {
+                if (l && typeof l === 'object' && typeof (l as any).id === 'string') {
+                  byId.set((l as any).id, l);
+                }
+              }
+              loans = loans.map(l => {
+                const local = byId.get(l.id);
+                const localFirst = local?.firstPaymentMonthYear || local?.first_payment_month_year;
+                return {
+                  ...l,
+                  firstPaymentMonthYear: l.firstPaymentMonthYear || (typeof localFirst === 'string' && localFirst ? localFirst : undefined)
+                };
+              });
+            }
+          }
+        } catch (e) {
+          // ignore merge errors
+        }
 
         // Save Supabase snapshot ids to avoid deleting records created on other devices later.
         try {
@@ -37,8 +85,12 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
         }
 
         // Cache latest remote data locally for quick reload / offline fallback
+        // BUT do not overwrite local cache if we have unsynced local changes.
         try {
-          localStorage.setItem(LS_LOANS, JSON.stringify(loans));
+          const dirty = localStorage.getItem(LS_LOANS_DIRTY) === 'true';
+          if (!dirty) {
+            localStorage.setItem(LS_LOANS, JSON.stringify(loans));
+          }
         } catch (e) {
           console.warn('Không thể lưu vào localStorage:', e);
         }
@@ -73,12 +125,21 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
     if (response.ok) {
       const loans = await response.json();
       if (Array.isArray(loans)) {
+        // Normalize shape (support older snake_case key from some exports)
+        const normalized = loans.map((l: any) => {
+          if (!l || typeof l !== 'object') return l;
+          const first = l.firstPaymentMonthYear ?? l.first_payment_month_year;
+          return {
+            ...l,
+            firstPaymentMonthYear: typeof first === 'string' && first ? first : l.firstPaymentMonthYear
+          };
+        });
         try {
-          localStorage.setItem(LS_LOANS, JSON.stringify(loans));
+          localStorage.setItem(LS_LOANS, JSON.stringify(normalized));
         } catch (e) {
           console.warn('Không thể lưu vào localStorage:', e);
         }
-        return loans;
+        return normalized;
       }
     }
   } catch (error) {
@@ -91,7 +152,15 @@ export const loadLoansFromServer = async (): Promise<Loan[]> => {
     try {
       const loans = JSON.parse(saved);
       if (Array.isArray(loans)) {
-        return loans;
+        // Normalize shape for local cache too
+        return loans.map((l: any) => {
+          if (!l || typeof l !== 'object') return l;
+          const first = l.firstPaymentMonthYear ?? l.first_payment_month_year;
+          return {
+            ...l,
+            firstPaymentMonthYear: typeof first === 'string' && first ? first : l.firstPaymentMonthYear
+          };
+        });
       }
     } catch (error) {
       console.error('Lỗi khi đọc từ localStorage:', error);
@@ -146,6 +215,13 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
       }
 
       console.log('✅ Đã lưu vào Supabase database');
+
+      // Clear dirty flag after successful Supabase sync
+      try {
+        localStorage.setItem(LS_LOANS_DIRTY, 'false');
+      } catch (e) {
+        // ignore
+      }
       
       // Backup vào localStorage
       try {
@@ -157,6 +233,13 @@ export const saveLoansToServer = async (loans: Loan[]): Promise<void> => {
       return;
     } catch (error) {
       console.error('❌ Lỗi khi lưu vào Supabase:', error);
+
+      // Mark local cache as dirty so next load won't overwrite it with stale Supabase data
+      try {
+        localStorage.setItem(LS_LOANS_DIRTY, 'true');
+      } catch (e) {
+        // ignore
+      }
 
       // Backup vào localStorage để không mất dữ liệu khi refresh
       try {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { CreditCard, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
@@ -26,7 +26,14 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>('dueDate');
+  const [sortBy, setSortBy] = useState<SortOption>(() => {
+    try {
+      const saved = localStorage.getItem('credit_card_sort_by');
+      return saved === 'debt' || saved === 'limit' || saved === 'dueDate' ? saved : 'dueDate';
+    } catch {
+      return 'dueDate';
+    }
+  });
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null);
   
   // Edit form state
@@ -36,6 +43,14 @@ const CreditCardList: React.FC<CreditCardListProps> = ({
   const [editDebt, setEditDebt] = useState('');
   const [editPaymentAmount, setEditPaymentAmount] = useState('');
   const [editDueDate, setEditDueDate] = useState<number>(1);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('credit_card_sort_by', sortBy);
+    } catch {
+      // ignore
+    }
+  }, [sortBy]);
 
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();

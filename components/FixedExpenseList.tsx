@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { FixedExpense, Payment } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
@@ -26,13 +26,28 @@ const FixedExpenseList: React.FC<FixedExpenseListProps> = ({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>('dueDate');
+  const [sortBy, setSortBy] = useState<SortOption>(() => {
+    try {
+      const saved = localStorage.getItem('fixed_expense_sort_by');
+      return saved === 'amount' || saved === 'name' || saved === 'dueDate' ? saved : 'dueDate';
+    } catch {
+      return 'dueDate';
+    }
+  });
   const [editingExpense, setEditingExpense] = useState<FixedExpense | null>(null);
   
   // Edit form state
   const [editName, setEditName] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editDueDate, setEditDueDate] = useState<number>(1);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fixed_expense_sort_by', sortBy);
+    } catch {
+      // ignore
+    }
+  }, [sortBy]);
 
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();

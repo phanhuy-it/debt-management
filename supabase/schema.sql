@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS loans (
   monthly_due_date INTEGER CHECK (monthly_due_date >= 1 AND monthly_due_date <= 31),
   monthly_payment DECIMAL(15, 2) DEFAULT 0,
   start_date DATE,
+  first_payment_month_year TEXT,
   term_months INTEGER DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED')),
   notes TEXT,

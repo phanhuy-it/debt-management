@@ -26,7 +26,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>('dueDate');
+  const [sortBy, setSortBy] = useState<SortOption>(() => {
+    try {
+      const saved = localStorage.getItem('loan_sort_by');
+      return saved === 'amount' || saved === 'dueDate' ? saved : 'dueDate';
+    } catch {
+      return 'dueDate';
+    }
+  });
   const [activeTab, setActiveTab] = useState<LoanTab>(() => {
     try {
       const saved = localStorage.getItem('loan_active_tab');
@@ -65,6 +72,14 @@ const LoanList: React.FC<LoanListProps> = ({ loans, onDeleteLoan, onAddPayment, 
       // ignore
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('loan_sort_by', sortBy);
+    } catch {
+      // ignore
+    }
+  }, [sortBy]);
 
   useEffect(() => {
     try {

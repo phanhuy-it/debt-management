@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Income, Payment, LoanStatus, Company, CompanyIncomeRecord, BhxhAdjustmentIndex } from '../types';
 import { formatCurrency } from '../App';
 import { generateUUID } from '../utils/uuid';
 import { Trash2, History, Wallet, Calendar, DollarSign, X, Edit, CheckCircle2, Circle, TrendingUp, Archive, Building2, PlusCircle } from 'lucide-react';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Amount } from './AmountVisibility';
 import { BhxhRoundingMode, calculateBhxhOneTimeEstimate } from '../utils/bhxhUtils';
 
@@ -53,7 +54,14 @@ const IncomeList: React.FC<IncomeListProps> = ({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [showHistory, setShowHistory] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>('receivedDate');
+  const [sortBy, setSortBy] = useState<SortOption>(() => {
+    try {
+      const saved = localStorage.getItem('income_sort_by');
+      return saved === 'amount' || saved === 'name' || saved === 'receivedDate' ? saved : 'receivedDate';
+    } catch {
+      return 'receivedDate';
+    }
+  });
   const [activeTab, setActiveTab] = useState<IncomeTab>('ACTIVE');
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [extraAmount, setExtraAmount] = useState('');
@@ -88,12 +96,23 @@ const IncomeList: React.FC<IncomeListProps> = ({
   const [newBhxhIndexYear, setNewBhxhIndexYear] = useState<number>(() => new Date().getFullYear());
   const [newBhxhIndexFactor, setNewBhxhIndexFactor] = useState<string>('1');
   const [newBhxhIndexNote, setNewBhxhIndexNote] = useState<string>('');
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('income_sort_by', sortBy);
+    } catch {
+      // ignore
+    }
+  }, [sortBy]);
   const BHXH_INDEX_PAGE_SIZE = 5;
   const [bhxhIndexPage, setBhxhIndexPage] = useState<number>(1);
 
   // Pagination for income history
   const INCOME_HISTORY_PAGE_SIZE = 5;
   const [incomeHistoryPage, setIncomeHistoryPage] = useState<number>(1);
+  const [incomeHistorySearch, setIncomeHistorySearch] = useState<string>('');
+  const [incomeHistoryCompanyFilter, setIncomeHistoryCompanyFilter] = useState<string>('ALL');
+  const INCOME_HISTORY_NO_COMPANY = '__NO_COMPANY__';
 
   // Pagination for monthly income stats
   const MONTHLY_STATS_PAGE_SIZE = 5;
@@ -188,18 +207,47 @@ const IncomeList: React.FC<IncomeListProps> = ({
     return [...allPayments].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [allPayments]);
 
+  const filteredIncomeHistory = useMemo(() => {
+    const q = incomeHistorySearch.trim().toLowerCase();
+    const companyFilter = incomeHistoryCompanyFilter;
+
+    return allPaymentsSorted.filter(p => {
+      // Company filter
+      if (companyFilter !== 'ALL') {
+        if (companyFilter === INCOME_HISTORY_NO_COMPANY) {
+          if (p.companyId) return false;
+        } else {
+          if (p.companyId !== companyFilter) return false;
+        }
+      }
+
+      // Text search
+      if (!q) return true;
+      const haystack = `${p.incomeName ?? ''} ${p.companyName ?? ''} ${p.note ?? ''} ${String(p.amount ?? '')}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [allPaymentsSorted, incomeHistorySearch, incomeHistoryCompanyFilter, INCOME_HISTORY_NO_COMPANY]);
+
+  const filteredIncomeHistoryTotal = useMemo(() => {
+    return filteredIncomeHistory.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  }, [filteredIncomeHistory]);
+
   const incomeHistoryTotalPages = useMemo(() => {
-    return Math.max(1, Math.ceil(allPaymentsSorted.length / INCOME_HISTORY_PAGE_SIZE));
-  }, [allPaymentsSorted.length]);
+    return Math.max(1, Math.ceil(filteredIncomeHistory.length / INCOME_HISTORY_PAGE_SIZE));
+  }, [filteredIncomeHistory.length]);
 
   React.useEffect(() => {
     setIncomeHistoryPage(prev => Math.min(Math.max(1, prev), incomeHistoryTotalPages));
   }, [incomeHistoryTotalPages]);
 
+  React.useEffect(() => {
+    setIncomeHistoryPage(1);
+  }, [incomeHistorySearch, incomeHistoryCompanyFilter]);
+
   const pagedIncomeHistory = useMemo(() => {
     const start = (incomeHistoryPage - 1) * INCOME_HISTORY_PAGE_SIZE;
-    return allPaymentsSorted.slice(start, start + INCOME_HISTORY_PAGE_SIZE);
-  }, [allPaymentsSorted, incomeHistoryPage]);
+    return filteredIncomeHistory.slice(start, start + INCOME_HISTORY_PAGE_SIZE);
+  }, [filteredIncomeHistory, incomeHistoryPage]);
 
   const incomeHistoryPageItems = useMemo(() => {
     const total = incomeHistoryTotalPages;
@@ -347,6 +395,50 @@ const IncomeList: React.FC<IncomeListProps> = ({
     const start = (yearlyStatsPage - 1) * YEARLY_STATS_PAGE_SIZE;
     return yearlyTotals.slice(start, start + YEARLY_STATS_PAGE_SIZE);
   }, [yearlyTotals, yearlyStatsPage]);
+
+  const formatCompactMoneyTick = (value: number): string => {
+    const v = Number(value) || 0;
+    const abs = Math.abs(v);
+    if (abs >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1)}B`;
+    if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
+    if (abs >= 1_000) return `${(v / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`;
+    return `${Math.round(v)}`;
+  };
+
+  const yearlyChartData = useMemo(() => {
+    // Full timeline: render left-to-right by ascending year
+    return [...yearlyTotals]
+      .slice()
+      .sort((a, b) => a.year - b.year)
+      .map(i => ({ year: String(i.year), total: i.total }));
+  }, [yearlyTotals]);
+
+  const yearlyChartWidth = useMemo(() => {
+    // Give each year enough width so the chart stays readable; allow horizontal scroll if needed.
+    return Math.max(640, yearlyChartData.length * 84);
+  }, [yearlyChartData.length]);
+
+  const YearlyIncomeTooltip = (props: {
+    active?: boolean;
+    payload?: Array<{ value?: number }>;
+    label?: string;
+  }) => {
+    const { active, payload, label } = props;
+    if (!active || !payload || payload.length === 0) return null;
+    const total = Number(payload[0]?.value) || 0;
+    const safeLabel = label || '';
+
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-3">
+        <div className="text-xs text-slate-500">Năm</div>
+        <div className="font-semibold text-slate-900">{safeLabel}</div>
+        <div className="mt-2 text-xs text-slate-500">Tổng thu</div>
+        <div className="font-semibold text-emerald-600">
+          <Amount value={total} id={`income-yearly-chart-${safeLabel}`} />
+        </div>
+      </div>
+    );
+  };
 
   const yearlyStatsPageItems = useMemo(() => {
     const total = yearlyStatsTotalPages;
@@ -1302,79 +1394,122 @@ const IncomeList: React.FC<IncomeListProps> = ({
         {allPaymentsSorted.length === 0 ? (
           <div className="p-6 text-slate-500 text-sm">Chưa có khoản thu nào trong lịch sử.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Ngày</th>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Khoản thu nhập</th>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Công ty</th>
-                  <th className="px-4 py-2 text-right font-semibold text-slate-600">Số tiền</th>
-                  <th className="px-4 py-2 text-left font-semibold text-slate-600">Ghi chú</th>
-                  <th className="px-3 py-2 text-center font-semibold text-slate-600 w-12"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {pagedIncomeHistory.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
-                      {new Date(p.date).toLocaleDateString('vi-VN')}
-                    </td>
-                    <td className="px-4 py-2 text-slate-700">{p.incomeName}</td>
-                    <td className="px-4 py-2 text-slate-700 max-w-[220px] truncate">{p.companyName || '—'}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
-                      <Amount value={p.amount} id={`income-history-${p.id}`} />
-                    </td>
-                    <td className="px-4 py-2 text-slate-500 max-w-[240px] truncate">{p.note || '-'}</td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        className="p-1.5 rounded hover:bg-red-50 text-slate-500 hover:text-red-600 transition-colors"
-                        title="Xóa dòng lịch sử này"
-                        onClick={() => {
-                          if (!p.incomeId) return;
+          <>
+            <div className="px-6 py-4 border-b border-slate-200 bg-white">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <div className="md:col-span-6">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Tìm kiếm</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    placeholder="Tên khoản thu / ghi chú / công ty / số tiền..."
+                    value={incomeHistorySearch}
+                    onChange={(e) => setIncomeHistorySearch(e.target.value)}
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Lọc theo công ty</label>
+                  <select
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                    value={incomeHistoryCompanyFilter}
+                    onChange={(e) => setIncomeHistoryCompanyFilter(e.target.value)}
+                  >
+                    <option value="ALL">Tất cả</option>
+                    <option value={INCOME_HISTORY_NO_COMPANY}>— (Không có công ty)</option>
+                    {sortedCompanies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-2 md:text-right">
+                  <div className="text-xs text-slate-500 mb-1">Tổng thu (kết quả)</div>
+                  <div className="font-semibold text-emerald-600 whitespace-nowrap">
+                    <Amount value={filteredIncomeHistoryTotal} id="income-history-total-filtered" />
+                  </div>
+                </div>
+              </div>
+            </div>
 
-                          const meta = (p as any)?.meta;
-                          // Salary lines are derived from company monthly records; deleting the payment alone will be re-synced back.
-                          if (meta?.type === 'SALARY' && meta?.companyId && meta?.month) {
-                            const companyName = companies.find(c => c.id === meta.companyId)?.name || 'Công ty';
-                            const msg =
-                              `Dòng này là lương từ "${companyName}" (${meta.month}).\n` +
-                              `Xóa ở đây sẽ xóa "Lương thực nhận" của tháng này trong dữ liệu công ty (BHXH giữ nguyên).\n` +
-                              `Bạn có chắc chắn muốn xóa không?`;
+            {filteredIncomeHistory.length === 0 ? (
+              <div className="p-6 text-slate-500 text-sm">Không có kết quả phù hợp.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-semibold text-slate-600">Ngày</th>
+                      <th className="px-4 py-2 text-left font-semibold text-slate-600">Khoản thu nhập</th>
+                      <th className="px-4 py-2 text-left font-semibold text-slate-600">Công ty</th>
+                      <th className="px-4 py-2 text-right font-semibold text-slate-600">Số tiền</th>
+                      <th className="px-4 py-2 text-left font-semibold text-slate-600">Ghi chú</th>
+                      <th className="px-3 py-2 text-center font-semibold text-slate-600 w-12"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pagedIncomeHistory.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                          {new Date(p.date).toLocaleDateString('vi-VN')}
+                        </td>
+                        <td className="px-4 py-2 text-slate-700">{p.incomeName}</td>
+                        <td className="px-4 py-2 text-slate-700 max-w-[220px] truncate">{p.companyName || '—'}</td>
+                        <td className="px-4 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
+                          <Amount value={p.amount} id={`income-history-${p.id}`} />
+                        </td>
+                        <td className="px-4 py-2 text-slate-500 max-w-[240px] truncate">{p.note || '-'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            className="p-1.5 rounded hover:bg-red-50 text-slate-500 hover:text-red-600 transition-colors"
+                            title="Xóa dòng lịch sử này"
+                            onClick={() => {
+                              if (!p.incomeId) return;
 
-                            if (!window.confirm(msg)) return;
+                              const meta = (p as any)?.meta;
+                              // Salary lines are derived from company monthly records; deleting the payment alone will be re-synced back.
+                              if (meta?.type === 'SALARY' && meta?.companyId && meta?.month) {
+                                const companyName = companies.find(c => c.id === meta.companyId)?.name || 'Công ty';
+                                const msg =
+                                  `Dòng này là lương từ "${companyName}" (${meta.month}).\n` +
+                                  `Xóa ở đây sẽ xóa "Lương thực nhận" của tháng này trong dữ liệu công ty (BHXH giữ nguyên).\n` +
+                                  `Bạn có chắc chắn muốn xóa không?`;
 
-                            const record = companyIncomeRecords.find(
-                              r => r.companyId === meta.companyId && r.month === meta.month
-                            );
+                                if (!window.confirm(msg)) return;
 
-                            if (record) {
-                              // Clear only netSalary; keep BHXH base / exclude flag as-is
-                              onUpdateCompanyIncomeRecord(record.id, { netSalary: undefined });
-                              return;
-                            }
-                            // Fallback: remove payment if the source record cannot be found
-                            onRemovePayment(p.incomeId, [p.id]);
-                            return;
-                          }
+                                const record = companyIncomeRecords.find(
+                                  r => r.companyId === meta.companyId && r.month === meta.month
+                                );
 
-                          if (window.confirm('Xóa dòng lịch sử thu nhập này?')) onRemovePayment(p.incomeId, [p.id]);
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                                if (record) {
+                                  // Clear only netSalary; keep BHXH base / exclude flag as-is
+                                  onUpdateCompanyIncomeRecord(record.id, { netSalary: undefined });
+                                  return;
+                                }
+                                // Fallback: remove payment if the source record cannot be found
+                                onRemovePayment(p.incomeId, [p.id]);
+                                return;
+                              }
+
+                              if (window.confirm('Xóa dòng lịch sử thu nhập này?')) onRemovePayment(p.incomeId, [p.id]);
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
-        {allPaymentsSorted.length > INCOME_HISTORY_PAGE_SIZE && (
+        {filteredIncomeHistory.length > INCOME_HISTORY_PAGE_SIZE && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-6 py-3 border-t border-slate-200 bg-white rounded-b-xl">
             <div className="text-xs text-slate-500">
               {(() => {
-                const total = allPaymentsSorted.length;
+                const total = filteredIncomeHistory.length;
                 const start = (incomeHistoryPage - 1) * INCOME_HISTORY_PAGE_SIZE + 1;
                 const end = Math.min(total, incomeHistoryPage * INCOME_HISTORY_PAGE_SIZE);
                 return `Hiển thị ${start}-${end} / ${total} (5 dòng/trang)`;
@@ -1596,6 +1731,49 @@ const IncomeList: React.FC<IncomeListProps> = ({
           </div>
         )}
       </div>
+
+      {/* Biểu đồ theo năm (full width) */}
+      {yearlyTotals.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200">
+          <div className="px-6 py-4 border-b border-slate-200">
+            <h3 className="text-lg font-semibold text-slate-800">Biểu đồ thu nhập theo năm</h3>
+          </div>
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <p className="text-xs text-slate-500">Tổng thu theo năm (toàn bộ quá trình).</p>
+              <p className="text-xs text-slate-500">
+                {yearlyChartData.length > 0
+                  ? `Năm ${yearlyChartData[0].year} → ${yearlyChartData[yearlyChartData.length - 1].year}`
+                  : ''}
+              </p>
+            </div>
+            <div className="w-full overflow-x-auto">
+              <div className="h-72" style={{ width: yearlyChartWidth }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={yearlyChartData} margin={{ top: 10, right: 16, left: 0, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                    <XAxis
+                      dataKey="year"
+                      tick={{ fontSize: 12, fill: '#64748B' }}
+                      axisLine={{ stroke: '#E2E8F0' }}
+                      tickLine={{ stroke: '#E2E8F0' }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 12, fill: '#64748B' }}
+                      axisLine={{ stroke: '#E2E8F0' }}
+                      tickLine={{ stroke: '#E2E8F0' }}
+                      tickFormatter={(v) => formatCompactMoneyTick(Number(v))}
+                    />
+                    <Tooltip content={<YearlyIncomeTooltip />} />
+                    <Bar dataKey="total" fill="#10B981" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {/* Công ty & BHXH */}
