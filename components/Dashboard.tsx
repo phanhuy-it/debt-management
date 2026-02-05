@@ -4,7 +4,7 @@ import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, Investmen
 import { generateUUID } from '../utils/uuid';
 import { isBorrowPayment } from '../utils/constants';
 import { isLoanPaymentDueInMonth } from '../utils/dateUtils';
-import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone } from 'lucide-react';
+import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone, CheckCircle2 } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 import { getVietnameseLunarDate } from '../utils/lunarCalendar';
 
@@ -507,11 +507,12 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   }, [monthlyIncomeListGrouped]);
 
   // Danh sách các khoản chi tiêu trong tháng hiện tại (đã nhóm theo loại)
+  type ExpenseListItem = { id: string; name: string; amount: number; type: string; provider?: string; dueDate?: number; date?: string; sourceType: 'loan' | 'creditCard' | 'expense'; isPaid: boolean };
   const monthlyExpenseListGrouped = useMemo(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
-    const grouped: Record<string, Array<{ id: string; name: string; amount: number; type: string; provider?: string; dueDate?: number; date?: string }>> = {};
+    const grouped: Record<string, ExpenseListItem[]> = {};
     
     // Khoản vay ngân hàng
     loans
@@ -527,7 +528,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           amount: loan.monthlyPayment,
           type: type,
           provider: loan.provider,
-          dueDate: loan.monthlyDueDate
+          dueDate: loan.monthlyDueDate,
+          sourceType: 'loan',
+          isPaid: isPaidInMonth(loan.payments, currentYear, currentMonth)
         });
       });
     
@@ -545,7 +548,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           amount: loan.monthlyPayment,
           type: type,
           provider: loan.provider,
-          dueDate: loan.monthlyDueDate
+          dueDate: loan.monthlyDueDate,
+          sourceType: 'loan',
+          isPaid: isPaidInMonth(loan.payments, currentYear, currentMonth)
         });
       });
     
@@ -563,7 +568,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           amount: card.paymentAmount,
           type: type,
           provider: card.provider,
-          dueDate: card.dueDate
+          dueDate: card.dueDate,
+          sourceType: 'creditCard',
+          isPaid: isPaidInMonth(card.payments, currentYear, currentMonth)
         });
       });
     
@@ -580,7 +587,9 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           name: expense.name,
           amount: expense.amount,
           type: type,
-          dueDate: expense.dueDate
+          dueDate: expense.dueDate,
+          sourceType: 'expense',
+          isPaid: isPaidInMonth(expense.payments, currentYear, currentMonth)
         });
       });
     
@@ -1498,10 +1507,14 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                           {items.map((item) => (
                             <div
                               key={item.id}
-                              className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors"
+                              className={`flex items-center justify-between gap-3 p-3 rounded-lg border transition-colors ${
+                                item.isPaid
+                                  ? 'border-emerald-200 bg-emerald-50/50'
+                                  : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                              }`}
                             >
-                              <div className="flex-1">
-                                <p className="font-medium text-slate-900">{item.name}</p>
+                              <div className="flex-1 min-w-0">
+                                <p className={`font-medium ${item.isPaid ? 'text-slate-500' : 'text-slate-900'}`}>{item.name}</p>
                                 {item.provider && (
                                   <p className="text-xs text-slate-500 mt-1">{item.provider}</p>
                                 )}
@@ -1518,10 +1531,18 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                                   </p>
                                 )}
                               </div>
-                              <div className="text-right ml-4">
-                                <p className="font-semibold text-red-600">
-                                  <Amount value={item.amount} id={`expense-item-${item.id}`} />
-                                </p>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="text-right">
+                                  <p className={`font-semibold ${item.isPaid ? 'text-slate-500' : 'text-red-600'}`}>
+                                    <Amount value={item.amount} id={`expense-item-${item.id}`} />
+                                  </p>
+                                </div>
+                                {item.isPaid && (
+                                  <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-100 text-emerald-700 text-xs font-medium" title="Đã thanh toán">
+                                    <CheckCircle2 size={16} />
+                                    Đã thanh toán
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}

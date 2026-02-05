@@ -374,8 +374,9 @@ const InvestmentList: React.FC<InvestmentListProps> = ({
                         </div>
                         <div className="text-right">
                           <div className="text-xs text-slate-500">Số dư</div>
-                          <div className={`font-semibold ${stats.balance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                            <Amount value={Math.abs(stats.balance)} id={`account-${account.id}-balance`} />
+                          <div className={`inline-flex items-center gap-1.5 font-semibold ${stats.balance >= 0 ? 'text-orange-600' : 'text-emerald-600'}`} title={stats.balance >= 0 ? 'Đang lỗ' : 'Sinh lời'}>
+                            {stats.balance >= 0 ? <TrendingDown size={18} aria-hidden /> : <TrendingUp size={18} aria-hidden />}
+                            <Amount value={stats.balance} id={`account-${account.id}-balance`} />
                           </div>
                         </div>
                       </div>
@@ -407,8 +408,9 @@ const InvestmentList: React.FC<InvestmentListProps> = ({
                     </div>
                     <div className="text-center">
                       <div className="text-xs text-slate-500">Số dư</div>
-                      <div className={`font-semibold text-sm ${stats.balance >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                        <Amount value={Math.abs(stats.balance)} id={`account-${account.id}-balance-mobile`} />
+                      <div className={`inline-flex items-center justify-center gap-1.5 font-semibold text-sm ${stats.balance >= 0 ? 'text-orange-600' : 'text-emerald-600'}`} title={stats.balance >= 0 ? 'Đang lỗ' : 'Sinh lời'}>
+                        {stats.balance >= 0 ? <TrendingDown size={16} aria-hidden /> : <TrendingUp size={16} aria-hidden />}
+                        <Amount value={stats.balance} id={`account-${account.id}-balance-mobile`} />
                       </div>
                     </div>
                   </div>
