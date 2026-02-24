@@ -417,8 +417,18 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
   );
   const totalNeeded = totalSettlementAmount + totalAdditionalPaymentsAmount;
 
-  // Tính số tháng còn lại
+  // Tính số tháng còn lại và format "X năm Y tháng"
   const monthsRemaining = roadmap.length;
+  const monthsRemainingLabel =
+    monthsRemaining === 0
+      ? '0 tháng'
+      : (() => {
+          const years = Math.floor(monthsRemaining / 12);
+          const months = monthsRemaining % 12;
+          if (years > 0 && months > 0) return `${years} năm ${months} tháng`;
+          if (years > 0) return `${years} năm`;
+          return `${months} tháng`;
+        })();
 
   if (roadmap.length === 0 && activeBankLoans.length === 0 && simulatedLoans.length === 0) {
     return (
@@ -454,10 +464,10 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
         <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl shadow-sm border border-purple-200">
           <div className="flex items-center gap-3 mb-2">
             <Calendar className="text-purple-600" size={24} />
-            <p className="text-sm text-slate-600">Số tháng còn lại</p>
+            <p className="text-sm text-slate-600">Thời gian còn lại</p>
           </div>
           <h3 className="text-2xl font-bold text-purple-600">
-            {monthsRemaining} tháng
+            {monthsRemainingLabel}
           </h3>
         </div>
         <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-6 rounded-xl shadow-sm border border-emerald-200">
