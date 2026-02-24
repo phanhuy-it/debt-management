@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
 import { Loan, LoanType, LoanStatus } from '../types';
-import { Calendar, Wallet, TrendingDown, CheckCircle2, X, Plus, Trash2 } from 'lucide-react';
+import { Calendar, Wallet, TrendingDown, CheckCircle2, X, Plus, Trash2, Pencil } from 'lucide-react';
 import { generateUUID } from '../utils/uuid';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 
@@ -25,6 +25,7 @@ interface EarlySettlement {
   loanId: string;
   settleMonth: number; // 0-11 (tháng thực tế)
   settleYear: number;  // năm thực tế
+  customAmount?: number; // Số tiền tất toán tùy chỉnh (nếu có)
 }
 
 interface SimulatedLoan {
@@ -38,13 +39,95 @@ interface SimulatedLoan {
   termMonths: number;
 }
 
+interface AdditionalPayment {
+  id: string;
+  name: string;
+  amount: number;
+}
+
+const MONTH_NAMES = [
+  'Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
+  'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'
+];
+
+const MAX_ROADMAP_MONTHS = 120; // 10 năm, tránh lộ trình vô hạn (khoản chỉ trả lãi)
+
+const STORAGE_KEY = 'debt_roadmap_simulation';
+
+function loadSimulationFromStorage(): {
+  earlySettlements: EarlySettlement[];
+  simulatedLoans: SimulatedLoan[];
+  capitalAmount: number | null;
+  additionalPayments: AdditionalPayment[];
+} {
+  try {
+    if (typeof window === 'undefined') return { earlySettlements: [], simulatedLoans: [], capitalAmount: null, additionalPayments: [] };
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { earlySettlements: [], simulatedLoans: [], capitalAmount: null, additionalPayments: [] };
+    const data = JSON.parse(raw) as {
+      earlySettlements?: unknown;
+      simulatedLoans?: unknown;
+      capitalAmount?: number | null;
+      additionalPayments?: unknown;
+    };
+    const earlySettlements = Array.isArray(data.earlySettlements)
+      ? data.earlySettlements.filter(
+          (s): s is EarlySettlement =>
+            s && typeof s === 'object' && typeof (s as EarlySettlement).loanId === 'string' && typeof (s as EarlySettlement).settleMonth === 'number' && typeof (s as EarlySettlement).settleYear === 'number'
+        )
+      : [];
+    const simulatedLoansRaw = Array.isArray(data.simulatedLoans)
+      ? data.simulatedLoans.filter(
+          (s): s is SimulatedLoan =>
+            s &&
+            typeof s === 'object' &&
+            typeof (s as SimulatedLoan).id === 'string' &&
+            typeof (s as SimulatedLoan).name === 'string' &&
+            typeof (s as SimulatedLoan).originalAmount === 'number' &&
+            typeof (s as SimulatedLoan).monthlyPayment === 'number' &&
+            typeof (s as SimulatedLoan).startMonth === 'number' &&
+            typeof (s as SimulatedLoan).startYear === 'number' &&
+            typeof (s as SimulatedLoan).termMonths === 'number'
+        )
+      : [];
+    const simulatedLoans = simulatedLoansRaw.map((s) => ({
+      ...s,
+      provider: typeof s.provider === 'string' ? s.provider : '',
+    }));
+    const capitalAmount =
+      typeof data.capitalAmount === 'number' && data.capitalAmount >= 0 ? data.capitalAmount : null;
+    const additionalPayments = Array.isArray(data.additionalPayments)
+      ? data.additionalPayments.filter(
+          (p): p is AdditionalPayment =>
+            p &&
+            typeof p === 'object' &&
+            typeof (p as AdditionalPayment).id === 'string' &&
+            typeof (p as AdditionalPayment).name === 'string' &&
+            typeof (p as AdditionalPayment).amount === 'number' &&
+            (p as AdditionalPayment).amount >= 0
+        )
+      : [];
+    return { earlySettlements, simulatedLoans, capitalAmount, additionalPayments };
+  } catch {
+    return { earlySettlements: [], simulatedLoans: [], capitalAmount: null, additionalPayments: [] };
+  }
+}
+
 const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
   const [selectedMonth, setSelectedMonth] = useState<MonthlyPayment | null>(null);
-  const [earlySettlements, setEarlySettlements] = useState<EarlySettlement[]>([]);
+  const [earlySettlements, setEarlySettlements] = useState<EarlySettlement[]>(() => loadSimulationFromStorage().earlySettlements);
   const [newSettlementLoanId, setNewSettlementLoanId] = useState<string>('');
   // input type="month", giá trị dạng "YYYY-MM"
   const [newSettlementMonthYear, setNewSettlementMonthYear] = useState<string>('');
-  
+  // Index khoản tất toán đang mở input chỉnh sửa số tiền (null = không mở)
+  const [editingSettlementIndex, setEditingSettlementIndex] = useState<number | null>(null);
+  // Số vốn (để so sánh với tổng tất toán, hiển thị số tiền dư)
+  const [capitalAmount, setCapitalAmount] = useState<number | null>(() => loadSimulationFromStorage().capitalAmount ?? null);
+  const [editingCapitalAmount, setEditingCapitalAmount] = useState(false);
+  // Khoản thanh toán thêm (tên + số tiền) để tính tổng cần thiết
+  const [additionalPayments, setAdditionalPayments] = useState<AdditionalPayment[]>(() => loadSimulationFromStorage().additionalPayments);
+  const [newAdditionalPayment, setNewAdditionalPayment] = useState({ name: '', amount: '' });
+
   // Handle ESC key to close modal
   React.useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -56,9 +139,20 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [selectedMonth]);
-  
-  // State cho khoản vay mô phỏng
-  const [simulatedLoans, setSimulatedLoans] = useState<SimulatedLoan[]>([]);
+
+  // State cho khoản vay mô phỏng (khởi tạo từ cache)
+  const [simulatedLoans, setSimulatedLoans] = useState<SimulatedLoan[]>(() => loadSimulationFromStorage().simulatedLoans);
+
+  // Lưu mô phỏng vào localStorage khi thay đổi
+  React.useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      const payload = { earlySettlements, simulatedLoans, capitalAmount, additionalPayments };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore
+    }
+  }, [earlySettlements, simulatedLoans, capitalAmount, additionalPayments]);
   const [newSimulatedLoan, setNewSimulatedLoan] = useState({
     name: '',
     provider: '',
@@ -68,10 +162,6 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
     termMonths: '',
   });
   
-  const monthNames = [
-    'Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
-    'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'
-  ];
   const { formatAmount } = useAmountVisibility();
 
   const activeBankLoans = useMemo(
@@ -139,7 +229,10 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
         })
         .reduce((acc, p) => acc + p.amount, 0);
 
-      const remaining = Math.max(0, loan.originalAmount - paid);
+      // Khoản chỉ trả lãi: gốc không giảm, remaining = originalAmount
+      const remaining = loan.interestOnly
+        ? loan.originalAmount
+        : Math.max(0, loan.originalAmount - paid);
 
       const status = {
         loan,
@@ -166,8 +259,8 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
 
     const monthlyPayments: MonthlyPayment[] = [];
 
-    // Chạy tối đa 600 tháng, dừng sớm nếu tất cả khoản vay đã trả hết
-    for (let monthOffset = 0; monthOffset < 600; monthOffset++) {
+    // Chạy tối đa MAX_ROADMAP_MONTHS, dừng sớm nếu tất cả khoản vay đã trả hết
+    for (let monthOffset = 0; monthOffset < MAX_ROADMAP_MONTHS; monthOffset++) {
       const targetMonth = (currentMonth + monthOffset) % 12;
       const targetYear =
         currentYear + Math.floor((currentMonth + monthOffset) / 12);
@@ -209,17 +302,19 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
         
         // Thanh toán bình thường
         const paymentThisMonth = status.loan.monthlyPayment;
-        const effectivePayment = Math.min(
-          status.remainingForSchedule,
-          paymentThisMonth
-        );
+        const isInterestOnly = status.loan.interestOnly;
+        const effectivePayment = isInterestOnly
+          ? paymentThisMonth // Chỉ trả lãi: trả đủ số tiền hàng tháng, gốc không giảm
+          : Math.min(status.remainingForSchedule, paymentThisMonth);
 
         if (effectivePayment <= 0) return;
 
-        status.remainingForSchedule = Math.max(
-          0,
-          status.remainingForSchedule - effectivePayment
-        );
+        if (!isInterestOnly) {
+          status.remainingForSchedule = Math.max(
+            0,
+            status.remainingForSchedule - effectivePayment
+          );
+        }
 
         monthLoans.push({
           loan: status.loan,
@@ -239,19 +334,88 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
           month: targetMonth,
           year: targetYear,
           totalAmount,
-          monthLabel: `${monthNames[targetMonth]} ${targetYear}`,
+          monthLabel: `${MONTH_NAMES[targetMonth]} ${targetYear}`,
           loans: monthLoans,
         });
       }
     }
 
     return monthlyPayments;
-  }, [activeBankLoans, monthNames, earlySettlements, simulatedLoans]);
+  }, [activeBankLoans, earlySettlements, simulatedLoans]);
 
   // Tính tổng số tiền phải trả
   const totalAmount = useMemo(() => {
     return roadmap.reduce((sum, month) => sum + month.totalAmount, 0);
   }, [roadmap]);
+
+  // Tính tổng số tiền tất toán sớm (số dư còn lại tại tháng tất toán của từng khoản vay)
+  const { totalSettlementAmount, settlementAmountByLoanId, calculatedAmountByLoanId } = useMemo(() => {
+    const byLoanId = new Map<string, number>();
+    const calculatedByLoanId = new Map<string, number>();
+    if (earlySettlements.length === 0) {
+      return { totalSettlementAmount: 0, settlementAmountByLoanId: byLoanId, calculatedAmountByLoanId: calculatedByLoanId };
+    }
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    let total = 0;
+    earlySettlements.forEach((settlement) => {
+      const loan = activeBankLoans.find((l) => l.id === settlement.loanId);
+      if (!loan) return;
+
+      let remaining: number;
+
+      if (loan.interestOnly) {
+        // Khoản chỉ trả lãi: gốc không giảm theo tháng, số tiền tất toán = toàn bộ gốc
+        remaining = loan.originalAmount;
+      } else {
+        const paid = loan.payments
+          .filter((p) => {
+            const isBorrow =
+              p.id.startsWith('borrow-') ||
+              (p.note && p.note.includes('Vay thêm'));
+            return !isBorrow;
+          })
+          .reduce((acc, p) => acc + p.amount, 0);
+        remaining = Math.max(0, loan.originalAmount - paid);
+
+        for (let monthOffset = 0; monthOffset < 600; monthOffset++) {
+          const targetMonth = (currentMonth + monthOffset) % 12;
+          const targetYear =
+            currentYear + Math.floor((currentMonth + monthOffset) / 12);
+          const targetDate = new Date(targetYear, targetMonth, 1);
+          const settleDate = new Date(
+            settlement.settleYear,
+            settlement.settleMonth,
+            1
+          );
+
+          if (targetDate >= settleDate) break;
+          if (remaining <= 0) break;
+
+          const payment = Math.min(remaining, loan.monthlyPayment);
+          remaining = Math.max(0, remaining - payment);
+        }
+      }
+
+      calculatedByLoanId.set(settlement.loanId, remaining);
+      const amount = settlement.customAmount !== undefined && settlement.customAmount >= 0
+        ? settlement.customAmount
+        : remaining;
+      byLoanId.set(settlement.loanId, amount);
+      total += amount;
+    });
+
+    return { totalSettlementAmount: total, settlementAmountByLoanId: byLoanId, calculatedAmountByLoanId: calculatedByLoanId };
+  }, [earlySettlements, activeBankLoans]);
+
+  const totalAdditionalPaymentsAmount = useMemo(
+    () => additionalPayments.reduce((sum, p) => sum + p.amount, 0),
+    [additionalPayments]
+  );
+  const totalNeeded = totalSettlementAmount + totalAdditionalPaymentsAmount;
 
   // Tính số tháng còn lại
   const monthsRemaining = roadmap.length;
@@ -324,6 +488,144 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
           </p>
         </div>
 
+        {/* Số vốn & Số tiền dư còn lại */}
+        <div className="mb-4 p-3 bg-amber-50/50 rounded-lg border border-amber-200/50 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-600">Số vốn (VNĐ):</span>
+            {editingCapitalAmount ? (
+              <>
+                <input
+                  type="number"
+                  min={0}
+                  step={100000}
+                  className="w-40 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Nhập số vốn dùng để tất toán"
+                  value={capitalAmount !== null ? capitalAmount : ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setCapitalAmount(null);
+                    } else {
+                      const num = parseFloat(val.replace(/\./g, '').replace(',', '.'));
+                      setCapitalAmount(isNaN(num) ? null : Math.max(0, num));
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setEditingCapitalAmount(false)}
+                  className="text-xs px-2 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100"
+                >
+                  Xong
+                </button>
+              </>
+            ) : (
+              <>
+                {capitalAmount !== null ? (
+                  <span className="text-sm font-medium text-amber-700">
+                    <Amount value={capitalAmount} id="roadmap-capital-amount" />
+                  </span>
+                ) : (
+                  <span className="text-sm text-slate-400">Chưa nhập</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEditingCapitalAmount(true)}
+                  className="text-xs px-2 py-1 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 flex items-center gap-1"
+                >
+                  <Pencil size={12} />
+                  Sửa
+                </button>
+              </>
+            )}
+          </div>
+          {capitalAmount !== null && (
+            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-200/50">
+              <span className="text-xs text-slate-600">Số tiền dư còn lại:</span>
+              <span className="text-sm font-semibold text-emerald-700">
+                <Amount
+                  value={Math.max(0, capitalAmount - totalNeeded)}
+                  id="roadmap-settlement-remaining"
+                />
+              </span>
+              <span className="text-xs text-slate-500">
+                (Số vốn − Tổng cần thanh toán)
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Thêm Khoản Thanh Toán & Tổng cần thiết */}
+        <div className="mb-4 p-3 bg-amber-50/50 rounded-lg border border-amber-200/50 space-y-3">
+          <p className="text-xs font-medium text-slate-600">Thêm Khoản Thanh Toán (để tính chung vào tổng cần thanh toán):</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-48"
+              placeholder="Tên khoản thanh toán"
+              value={newAdditionalPayment.name}
+              onChange={(e) => setNewAdditionalPayment((prev) => ({ ...prev, name: e.target.value }))}
+            />
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-36"
+              placeholder="Số tiền (VNĐ)"
+              value={newAdditionalPayment.amount}
+              onChange={(e) => setNewAdditionalPayment((prev) => ({ ...prev, amount: e.target.value }))}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const name = newAdditionalPayment.name.trim();
+                const amount = parseFloat(newAdditionalPayment.amount.replace(/\./g, '').replace(',', '.'));
+                if (name && !isNaN(amount) && amount >= 0) {
+                  setAdditionalPayments((prev) => [
+                    ...prev,
+                    { id: generateUUID(), name, amount },
+                  ]);
+                  setNewAdditionalPayment({ name: '', amount: '' });
+                }
+              }}
+              className="px-3 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors flex items-center gap-1"
+            >
+              <Plus size={14} />
+              Thêm
+            </button>
+          </div>
+          {additionalPayments.length > 0 && (
+            <ul className="space-y-1">
+              {additionalPayments.map((p) => (
+                <li key={p.id} className="flex items-center justify-between text-sm py-1.5 px-2 bg-white rounded border border-amber-100">
+                  <span className="text-slate-700">{p.name}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-medium text-amber-700">
+                      <Amount value={p.amount} id={`roadmap-additional-${p.id}`} />
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAdditionalPayments((prev) => prev.filter((x) => x.id !== p.id))}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="pt-2 border-t border-amber-200/50">
+            <span className="text-xs font-medium text-slate-600">Tổng số tiền cần thiết để thanh toán:</span>
+            <span className="ml-2 text-base font-semibold text-amber-700">
+              <Amount value={totalNeeded} id="roadmap-total-needed" />
+            </span>
+            <span className="text-xs text-slate-500 ml-1">
+              (Tất toán sớm + Khoản thanh toán thêm)
+            </span>
+          </div>
+        </div>
+
         {/* Form thêm khoản vay tất toán sớm */}
         <div className="flex flex-wrap items-center gap-2 mb-4 p-3 bg-amber-50 rounded-lg">
           <select
@@ -378,9 +680,17 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
         {/* Danh sách các khoản vay sẽ tất toán sớm */}
         {earlySettlements.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-slate-600 mb-2">
-              Các khoản vay sẽ tất toán sớm:
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-slate-600">
+                Các khoản vay sẽ tất toán sớm:
+              </p>
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Tổng số tiền tất toán</p>
+                <p className="text-base font-semibold text-amber-700">
+                  <Amount value={totalSettlementAmount} id="roadmap-settlement-total" />
+                </p>
+              </div>
+            </div>
             {earlySettlements.map((settlement, index) => {
               const loan = activeBankLoans.find(l => l.id === settlement.loanId);
               if (!loan) return null;
@@ -388,20 +698,91 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
               return (
                 <div
                   key={index}
-                  className="flex items-center justify-between p-3 bg-white border border-amber-200 rounded-lg"
+                  className="flex items-center justify-between gap-3 p-3 bg-white border border-amber-200 rounded-lg"
                 >
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-900">{loan.name}</p>
                     <p className="text-xs text-slate-500">
-                      Tất toán sớm vào {monthNames[settlement.settleMonth]} {settlement.settleYear}
+                      Tất toán sớm vào {MONTH_NAMES[settlement.settleMonth]} {settlement.settleYear}
                     </p>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {editingSettlementIndex === index ? (
+                        <>
+                          <label className="text-xs text-slate-600 whitespace-nowrap">Số tiền tất toán:</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={1000}
+                            className="w-36 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-amber-700 font-medium"
+                            placeholder={formatAmount(calculatedAmountByLoanId.get(settlement.loanId) ?? 0, `roadmap-settlement-input-${settlement.loanId}`)}
+                            value={
+                              settlement.customAmount !== undefined
+                                ? String(settlement.customAmount)
+                                : String(calculatedAmountByLoanId.get(settlement.loanId) ?? '')
+                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const newSettlements = [...earlySettlements];
+                              if (val === '') {
+                                const { customAmount: _, ...rest } = settlement;
+                                newSettlements[index] = rest;
+                              } else {
+                                const num = parseFloat(val.replace(/\./g, '').replace(',', '.'));
+                                newSettlements[index] = { ...settlement, customAmount: isNaN(num) ? 0 : num };
+                              }
+                              setEarlySettlements(newSettlements);
+                            }}
+                          />
+                          <span className="text-xs text-slate-400">VNĐ</span>
+                          <button
+                            type="button"
+                            onClick={() => setEditingSettlementIndex(null)}
+                            className="text-xs px-2 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100"
+                          >
+                            Xong
+                          </button>
+                          {settlement.customAmount !== undefined && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newSettlements = [...earlySettlements];
+                                const { customAmount: _, ...rest } = settlement;
+                                newSettlements[index] = rest;
+                                setEarlySettlements(newSettlements);
+                              }}
+                              className="text-xs text-slate-500 hover:text-slate-700 underline"
+                            >
+                              Đặt lại
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs text-slate-600">Số tiền tất toán:</span>
+                          <span className="text-sm font-medium text-amber-700">
+                            <Amount value={settlementAmountByLoanId.get(settlement.loanId) ?? 0} id={`roadmap-settlement-${settlement.loanId}`} />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setEditingSettlementIndex(index)}
+                            className="text-xs px-2 py-1 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 flex items-center gap-1"
+                          >
+                            <Pencil size={12} />
+                            Sửa
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
                       setEarlySettlements(earlySettlements.filter((_, i) => i !== index));
+                      setEditingSettlementIndex((prev) =>
+                        prev === index ? null : prev !== null && prev > index ? prev - 1 : prev
+                      );
                     }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -410,7 +791,10 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
             })}
             <button
               type="button"
-              onClick={() => setEarlySettlements([])}
+              onClick={() => {
+                setEarlySettlements([]);
+                setEditingSettlementIndex(null);
+              }}
               className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors"
             >
               Xóa tất cả mô phỏng
@@ -567,7 +951,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                   <p className="text-xs text-slate-500">
                     {simLoan.provider} • Gốc: <Amount value={simLoan.originalAmount} id={`sim-${simLoan.id}-original`} /> • 
                     Hàng tháng: <Amount value={simLoan.monthlyPayment} id={`sim-${simLoan.id}-monthly`} /> • 
-                    Bắt đầu: {monthNames[simLoan.startMonth]} {simLoan.startYear}
+                    Bắt đầu: {MONTH_NAMES[simLoan.startMonth]} {simLoan.startYear}
                   </p>
                 </div>
                 <button
