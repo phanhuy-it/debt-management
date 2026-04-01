@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
 import { Loan, LoanType, LoanStatus } from '../types';
-import { Calendar, Wallet, TrendingDown, CheckCircle2, X, Plus, Trash2, Pencil } from 'lucide-react';
+import { Calendar, Wallet, TrendingDown, CheckCircle2, X, Plus, Trash2, Pencil, GripVertical, ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
 import { generateUUID } from '../utils/uuid';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 
@@ -53,6 +53,16 @@ const MONTH_NAMES = [
 const MAX_ROADMAP_MONTHS = 120; // 10 năm, tránh lộ trình vô hạn (khoản chỉ trả lãi)
 
 const STORAGE_KEY = 'debt_roadmap_simulation';
+
+function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length) {
+    return list;
+  }
+  const next = [...list];
+  const [removed] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, removed);
+  return next;
+}
 
 function loadSimulationFromStorage(): {
   earlySettlements: EarlySettlement[];
@@ -119,8 +129,9 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
   const [newSettlementLoanId, setNewSettlementLoanId] = useState<string>('');
   // input type="month", giá trị dạng "YYYY-MM"
   const [newSettlementMonthYear, setNewSettlementMonthYear] = useState<string>('');
-  // Index khoản tất toán đang mở input chỉnh sửa số tiền (null = không mở)
-  const [editingSettlementIndex, setEditingSettlementIndex] = useState<number | null>(null);
+  // loanId khoản tất toán đang mở input chỉnh sửa số tiền (null = không mở)
+  const [editingSettlementLoanId, setEditingSettlementLoanId] = useState<string | null>(null);
+  const [draggingAdditionalPaymentId, setDraggingAdditionalPaymentId] = useState<string | null>(null);
   // Số vốn (để so sánh với tổng tất toán, hiển thị số tiền dư)
   const [capitalAmount, setCapitalAmount] = useState<number | null>(() => loadSimulationFromStorage().capitalAmount ?? null);
   const [editingCapitalAmount, setEditingCapitalAmount] = useState(false);
@@ -567,7 +578,46 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
 
         {/* Thêm Khoản Thanh Toán & Tổng cần thiết */}
         <div className="mb-4 p-3 bg-amber-50/50 rounded-lg border border-amber-200/50 space-y-3">
-          <p className="text-xs font-medium text-slate-600">Thêm Khoản Thanh Toán (để tính chung vào tổng cần thanh toán):</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-xs font-medium text-slate-600">
+              Thêm Khoản Thanh Toán (để tính chung vào tổng cần thanh toán):
+            </p>
+            {additionalPayments.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-slate-400">Kéo ⋮⋮ để đổi thứ tự</span>
+                <button
+                  type="button"
+                  title="Sắp xếp theo tên A–Z"
+                  onClick={() => {
+                    setAdditionalPayments((prev) =>
+                      [...prev].sort((a, b) =>
+                        a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' })
+                      )
+                    );
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border border-amber-200 text-amber-800 bg-amber-50/80 hover:bg-amber-100 transition-colors"
+                >
+                  <ArrowDownAZ size={12} />
+                  Tên A–Z
+                </button>
+                <button
+                  type="button"
+                  title="Sắp xếp theo tên Z–A"
+                  onClick={() => {
+                    setAdditionalPayments((prev) =>
+                      [...prev].sort((a, b) =>
+                        b.name.localeCompare(a.name, 'vi', { sensitivity: 'base' })
+                      )
+                    );
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border border-amber-200 text-amber-800 bg-amber-50/80 hover:bg-amber-100 transition-colors"
+                >
+                  <ArrowUpAZ size={12} />
+                  Tên Z–A
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="text"
@@ -606,23 +656,63 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
           </div>
           {additionalPayments.length > 0 && (
             <ul className="space-y-1">
-              {additionalPayments.map((p) => (
-                <li key={p.id} className="flex items-center justify-between text-sm py-1.5 px-2 bg-white rounded border border-amber-100">
-                  <span className="text-slate-700">{p.name}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium text-amber-700">
-                      <Amount value={p.amount} id={`roadmap-additional-${p.id}`} />
+              {additionalPayments.map((p) => {
+                const isDragging = draggingAdditionalPaymentId === p.id;
+                return (
+                  <li
+                    key={p.id}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const fromId = e.dataTransfer.getData('text/plain');
+                      if (!fromId || fromId === p.id) return;
+                      setAdditionalPayments((prev) => {
+                        const from = prev.findIndex((x) => x.id === fromId);
+                        const to = prev.findIndex((x) => x.id === p.id);
+                        if (from < 0 || to < 0) return prev;
+                        return reorderList(prev, from, to);
+                      });
+                    }}
+                    className={`flex items-center justify-between gap-2 text-sm py-1.5 px-2 bg-white rounded border border-amber-100 ${
+                      isDragging ? 'opacity-60 border-amber-300' : ''
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 min-w-0 flex-1">
+                      <span
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', p.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDraggingAdditionalPaymentId(p.id);
+                        }}
+                        onDragEnd={() => setDraggingAdditionalPaymentId(null)}
+                        title="Kéo để đổi thứ tự"
+                        className="text-slate-400 hover:text-amber-600 shrink-0 cursor-grab active:cursor-grabbing touch-none"
+                        aria-label="Kéo để sắp thứ tự"
+                      >
+                        <GripVertical size={16} />
+                      </span>
+                      <span className="text-slate-700 truncate">{p.name}</span>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setAdditionalPayments((prev) => prev.filter((x) => x.id !== p.id))}
-                      className="p-1 text-red-600 hover:bg-red-50 rounded"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </span>
-                </li>
-              ))}
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="font-medium text-amber-700">
+                        <Amount value={p.amount} id={`roadmap-additional-${p.id}`} />
+                      </span>
+                      <button
+                        type="button"
+                        draggable={false}
+                        onClick={() => setAdditionalPayments((prev) => prev.filter((x) => x.id !== p.id))}
+                        className="p-1 text-red-600 hover:bg-red-50 rounded"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
           <div className="pt-2 border-t border-amber-200/50">
@@ -701,13 +791,13 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                 </p>
               </div>
             </div>
-            {earlySettlements.map((settlement, index) => {
+            {earlySettlements.map((settlement) => {
               const loan = activeBankLoans.find(l => l.id === settlement.loanId);
               if (!loan) return null;
-              
+
               return (
                 <div
-                  key={index}
+                  key={settlement.loanId}
                   className="flex items-center justify-between gap-3 p-3 bg-white border border-amber-200 rounded-lg"
                 >
                   <div className="flex-1 min-w-0">
@@ -716,7 +806,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                       Tất toán sớm vào {MONTH_NAMES[settlement.settleMonth]} {settlement.settleYear}
                     </p>
                     <div className="mt-2 flex items-center gap-2 flex-wrap">
-                      {editingSettlementIndex === index ? (
+                      {editingSettlementLoanId === settlement.loanId ? (
                         <>
                           <label className="text-xs text-slate-600 whitespace-nowrap">Số tiền tất toán:</label>
                           <input
@@ -732,21 +822,26 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                             }
                             onChange={(e) => {
                               const val = e.target.value;
-                              const newSettlements = [...earlySettlements];
-                              if (val === '') {
-                                const { customAmount: _, ...rest } = settlement;
-                                newSettlements[index] = rest;
-                              } else {
-                                const num = parseFloat(val.replace(/\./g, '').replace(',', '.'));
-                                newSettlements[index] = { ...settlement, customAmount: isNaN(num) ? 0 : num };
-                              }
-                              setEarlySettlements(newSettlements);
+                              setEarlySettlements((prev) => {
+                                const idx = prev.findIndex((s) => s.loanId === settlement.loanId);
+                                if (idx < 0) return prev;
+                                const newSettlements = [...prev];
+                                const cur = prev[idx];
+                                if (val === '') {
+                                  const { customAmount: _, ...rest } = cur;
+                                  newSettlements[idx] = rest;
+                                } else {
+                                  const num = parseFloat(val.replace(/\./g, '').replace(',', '.'));
+                                  newSettlements[idx] = { ...cur, customAmount: isNaN(num) ? 0 : num };
+                                }
+                                return newSettlements;
+                              });
                             }}
                           />
                           <span className="text-xs text-slate-400">VNĐ</span>
                           <button
                             type="button"
-                            onClick={() => setEditingSettlementIndex(null)}
+                            onClick={() => setEditingSettlementLoanId(null)}
                             className="text-xs px-2 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100"
                           >
                             Xong
@@ -755,10 +850,15 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                             <button
                               type="button"
                               onClick={() => {
-                                const newSettlements = [...earlySettlements];
-                                const { customAmount: _, ...rest } = settlement;
-                                newSettlements[index] = rest;
-                                setEarlySettlements(newSettlements);
+                                setEarlySettlements((prev) => {
+                                  const idx = prev.findIndex((s) => s.loanId === settlement.loanId);
+                                  if (idx < 0) return prev;
+                                  const newSettlements = [...prev];
+                                  const cur = prev[idx];
+                                  const { customAmount: _, ...rest } = cur;
+                                  newSettlements[idx] = rest;
+                                  return newSettlements;
+                                });
                               }}
                               className="text-xs text-slate-500 hover:text-slate-700 underline"
                             >
@@ -774,7 +874,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                           </span>
                           <button
                             type="button"
-                            onClick={() => setEditingSettlementIndex(index)}
+                            onClick={() => setEditingSettlementLoanId(settlement.loanId)}
                             className="text-xs px-2 py-1 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 flex items-center gap-1"
                           >
                             <Pencil size={12} />
@@ -787,10 +887,8 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
                   <button
                     type="button"
                     onClick={() => {
-                      setEarlySettlements(earlySettlements.filter((_, i) => i !== index));
-                      setEditingSettlementIndex((prev) =>
-                        prev === index ? null : prev !== null && prev > index ? prev - 1 : prev
-                      );
+                      setEarlySettlements((prev) => prev.filter((s) => s.loanId !== settlement.loanId));
+                      setEditingSettlementLoanId((prev) => (prev === settlement.loanId ? null : prev));
                     }}
                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                   >
@@ -803,7 +901,7 @@ const PaymentRoadmap: React.FC<PaymentRoadmapProps> = ({ loans }) => {
               type="button"
               onClick={() => {
                 setEarlySettlements([]);
-                setEditingSettlementIndex(null);
+                setEditingSettlementLoanId(null);
               }}
               className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors"
             >
