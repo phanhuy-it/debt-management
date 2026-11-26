@@ -22,6 +22,13 @@ Không đưa `DATABASE_URL` hoặc `APP_PASSWORD` vào biến `VITE_*` hay front
    cần quyền đọc/ghi các bảng và tạo bảng phụ cho phiên, migration và giới hạn
    đăng nhập. Xem [README.md](./README.md) để xử lý dữ liệu cũ.
 
+Nếu API trả `FUNCTION_INVOCATION_FAILED`, kiểm tra Function Logs và đảm bảo
+ba biến môi trường được thiết lập cho đúng Production hoặc Preview, đặc biệt
+`APP_PASSWORD` phải có ít nhất 20 ký tự. Nếu domain là
+`https://race-money.vercel.app`, đặt `FRONTEND_ORIGIN` chính xác bằng origin
+đó. Redeploy sau khi sửa biến; đừng gửi mật khẩu hoặc chuỗi kết nối trong log
+hay ảnh chụp.
+
 Trên Vercel, kể cả Preview, ứng dụng luôn yêu cầu origin HTTPS, mật khẩu đủ
 20 ký tự và dùng cookie Secure. Preview deployment có URL khác sẽ bị kiểm tra origin từ chối nếu không
 khớp `FRONTEND_ORIGIN`; dùng domain ổn định và cấu hình riêng cho từng môi

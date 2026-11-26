@@ -8,7 +8,10 @@ test('serverless handler routes API, checks origin and enforces shared login lim
   process.env.APP_PASSWORD = 'test-password-at-least-20-characters';
   process.env.FRONTEND_ORIGIN = 'https://staging.example.test';
   process.env.VERCEL = '1';
-  const { default: handler } = await import('../api/[...path].js');
+  const { default: handler } = await import('../api/auth/session.js');
+  for (const route of ['../api/auth/login.js', '../api/auth/logout.js', '../api/data.js']) {
+    assert.equal((await import(route)).default, handler);
+  }
   const { pool } = await import('./app.js');
   const calls = [];
   let attempts = 0;
