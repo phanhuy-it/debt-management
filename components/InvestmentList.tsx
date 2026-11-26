@@ -492,8 +492,6 @@ const InvestmentList: React.FC<InvestmentListProps> = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             if (window.confirm(`Bạn có chắc chắn muốn xóa khoản đầu tư "${account.name}"? Tất cả giao dịch liên quan cũng sẽ bị xóa.`)) {
-                              // Delete all transactions first
-                              accountTransactions.forEach(t => onDeleteTransaction(t.id));
                               onDeleteAccount(account.id);
                             }
                           }}

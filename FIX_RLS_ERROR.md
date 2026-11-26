@@ -1,3 +1,5 @@
+# Lưu ý: Tài liệu lịch sử dành cho Supabase, không áp dụng cho backend Neon.
+
 # Cách Fix Lỗi Row Level Security (RLS)
 
 ## Lỗi:
@@ -64,4 +66,3 @@ Chạy file `supabase/fix-rls.sql` trong SQL Editor.
 
 - **Option 1** (tắt RLS): Đơn giản hơn, phù hợp cho app cá nhân
 - **Option 2** (tạo policies): Bảo mật hơn, có thể tùy chỉnh sau
-

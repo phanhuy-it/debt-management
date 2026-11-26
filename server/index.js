@@ -1,253 +1,148 @@
+import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import pg from 'pg';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { keys, loadRelationalData, saveRelationalData } from './dataStore.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const { DATABASE_URL, APP_PASSWORD, FRONTEND_ORIGIN, NODE_ENV, PORT = 3001 } = process.env;
+const minPasswordLength = NODE_ENV === 'production' ? 20 : 14;
+if (!DATABASE_URL || !APP_PASSWORD || APP_PASSWORD.length < minPasswordLength || !FRONTEND_ORIGIN) {
+  throw new Error(`DATABASE_URL, APP_PASSWORD (at least ${minPasswordLength} characters) and FRONTEND_ORIGIN are required`);
+}
+const frontendOrigin = new URL(FRONTEND_ORIGIN).origin;
+if (NODE_ENV === 'production' && !frontendOrigin.startsWith('https://')) {
+  throw new Error('FRONTEND_ORIGIN must use HTTPS in production');
+}
 
+pg.types.setTypeParser(1082, value => value);
+const pool = new pg.Pool({ connectionString: DATABASE_URL, enableChannelBinding: true });
 const app = express();
-const PORT = process.env.PORT || 3001;
-const DATA_DIR = path.join(__dirname, '../data');
-const DATA_FILE = path.join(DATA_DIR, 'database.json');
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '10mb' }));
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+const hash = value => createHash('sha256').update(value).digest('hex');
+const cookieName = 'debt_session';
+const cookieOptions = {
+  httpOnly: true,
+  secure: NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000
+};
 
-// Đảm bảo thư mục data tồn tại
-async function ensureDataDirectory() {
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  if (req.get('origin') && req.get('origin') !== frontendOrigin) {
+    return res.status(403).json({ error: 'Origin not allowed' });
+  }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.get('origin') !== frontendOrigin) {
+    return res.status(403).json({ error: 'Invalid origin' });
+  }
+  next();
+});
+
+const failures = new Map();
+app.post('/api/auth/login', async (req, res) => {
+  const key = req.ip;
+  const now = Date.now();
+  const attempts = (failures.get(key) || []).filter(time => time > now - 15 * 60 * 1000);
+  if (attempts.length >= 10) return res.status(429).json({ error: 'Quá nhiều lần thử. Vui lòng thử lại sau 15 phút.' });
+  const supplied = typeof req.body?.password === 'string' ? req.body.password : '';
+  const valid = timingSafeEqual(Buffer.from(hash(supplied), 'hex'), Buffer.from(hash(APP_PASSWORD), 'hex'));
+  if (!valid) {
+    attempts.push(now);
+    failures.set(key, attempts);
+    return res.status(401).json({ error: 'Mật khẩu không đúng' });
+  }
+  failures.delete(key);
   try {
-    await fs.access(DATA_DIR);
-  } catch {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    // Tạo file database.json mặc định nếu chưa có
-    try {
-      await fs.access(DATA_FILE);
-    } catch {
-      await fs.writeFile(DATA_FILE, JSON.stringify({ loans: [] }, null, 2), 'utf-8');
-    }
+    const token = randomBytes(32).toString('base64url');
+    await pool.query('INSERT INTO public.debt_app_sessions (token_hash, expires_at) VALUES ($1, now() + interval \'7 days\')', [hash(token)]);
+    res.cookie(cookieName, token, cookieOptions).json({ authenticated: true });
+  } catch (error) {
+    console.error('Login database error:', error.message);
+    res.status(500).json({ error: 'Không thể đăng nhập' });
+  }
+});
+
+async function authenticate(req, res, next) {
+  const token = req.headers.cookie?.split(';').map(part => part.trim())
+    .find(part => part.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(401).json({ error: 'Vui lòng đăng nhập' });
+  try {
+    const result = await pool.query('SELECT 1 FROM public.debt_app_sessions WHERE token_hash = $1 AND expires_at > now()', [hash(token)]);
+    if (!result.rowCount) return res.status(401).json({ error: 'Phiên đăng nhập đã hết hạn' });
+    req.sessionHash = hash(token);
+    next();
+  } catch (error) {
+    console.error('Session database error:', error.message);
+    res.status(500).json({ error: 'Không thể xác thực phiên đăng nhập' });
   }
 }
 
-// Khởi tạo khi server start
-ensureDataDirectory();
-
-const CREDIT_CARDS_FILE = path.join(DATA_DIR, 'credit-cards.json');
-
-// Đảm bảo file credit-cards.json tồn tại
-async function ensureCreditCardsFile() {
+app.get('/api/auth/session', authenticate, (req, res) => res.json({ authenticated: true }));
+app.post('/api/auth/logout', authenticate, async (req, res) => {
   try {
-    await fs.access(CREDIT_CARDS_FILE);
-  } catch {
-    await fs.writeFile(CREDIT_CARDS_FILE, JSON.stringify({ creditCards: [] }, null, 2), 'utf-8');
+    await pool.query('DELETE FROM public.debt_app_sessions WHERE token_hash = $1', [req.sessionHash]);
+    res.clearCookie(cookieName, { ...cookieOptions, maxAge: undefined }).json({ authenticated: false });
+  } catch (error) {
+    console.error('Logout database error:', error.message);
+    res.status(500).json({ error: 'Không thể đăng xuất' });
   }
+});
+
+app.get('/api/data', authenticate, async (req, res) => {
+  try {
+    res.json(await loadRelationalData(pool));
+  } catch (error) {
+    console.error('Load database error:', error.message);
+    const message = error.message.startsWith('Bảng ') ? error.message : 'Không thể tải dữ liệu. Kiểm tra cấu trúc database và nhật ký backend.';
+    res.status(500).json({ error: message });
+  }
+});
+
+app.put('/api/data', authenticate, async (req, res) => {
+  const { data, version } = req.body || {};
+  if (!data || typeof data !== 'object' || Array.isArray(data) ||
+      Object.keys(data).length !== keys.length ||
+      !keys.every(key => Array.isArray(data[key])) ||
+      typeof version !== 'string' || !/^[a-f0-9]{64}$/.test(version)) {
+    return res.status(400).json({ error: 'Dữ liệu hoặc phiên bản không hợp lệ' });
+  }
+  try {
+    const result = await saveRelationalData(pool, data, version);
+    if (!result) return res.status(409).json({ error: 'Dữ liệu đã thay đổi ở phiên khác. Hãy tải lại trang trước khi lưu.' });
+    res.json(result);
+  } catch (error) {
+    console.error('Save database error:', error.message);
+    const message = error.message.startsWith('Bảng ') || error.message.startsWith('Dữ liệu chứa') ? error.message : 'Không thể lưu dữ liệu. Kiểm tra cấu trúc database và nhật ký backend.';
+    res.status(500).json({ error: message });
+  }
+});
+
+app.use((error, req, res, next) => {
+  console.error('Request error:', error.message);
+  res.status(error.status || 500).json({ error: 'Yêu cầu không hợp lệ hoặc server gặp lỗi' });
+});
+
+async function start() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.debt_app_sessions (
+      token_hash text PRIMARY KEY,
+      expires_at timestamptz NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS public.debt_app_legacy_investments (
+      id uuid PRIMARY KEY
+    )
+  `);
+  await pool.query('DELETE FROM public.debt_app_sessions WHERE expires_at <= now()');
+  const host = NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+  app.listen(PORT, host, () => console.log(`API listening on ${host}:${PORT}`));
 }
 
-// Khởi tạo khi server start
-ensureCreditCardsFile();
-
-const FIXED_EXPENSES_FILE = path.join(DATA_DIR, 'fixed-expenses.json');
-
-// Đảm bảo file fixed-expenses.json tồn tại
-async function ensureFixedExpensesFile() {
-  try {
-    await fs.access(FIXED_EXPENSES_FILE);
-  } catch {
-    await fs.writeFile(FIXED_EXPENSES_FILE, JSON.stringify({ fixedExpenses: [] }, null, 2), 'utf-8');
-  }
-}
-
-// Khởi tạo khi server start
-ensureFixedExpensesFile();
-
-// GET: Lấy tất cả dữ liệu khoản vay
-app.get('/api/loans', async (req, res) => {
-  try {
-    const data = await fs.readFile(DATA_FILE, 'utf-8');
-    const jsonData = JSON.parse(data);
-    res.json(jsonData.loans || []);
-  } catch (error) {
-    // Nếu file chưa tồn tại, trả về mảng rỗng
-    if (error.code === 'ENOENT') {
-      res.json([]);
-    } else {
-      console.error('Lỗi khi đọc dữ liệu:', error);
-      res.status(500).json({ error: 'Không thể đọc dữ liệu' });
-    }
-  }
+start().catch(error => {
+  console.error('Server startup failed:', error.message);
+  process.exitCode = 1;
+  pool.end();
 });
-
-// POST: Lưu toàn bộ dữ liệu khoản vay
-app.post('/api/loans', async (req, res) => {
-  try {
-    const loans = req.body.loans || req.body; // Hỗ trợ cả {loans: [...]} và [...]
-    
-    if (!Array.isArray(loans)) {
-      return res.status(400).json({ error: 'Dữ liệu phải là một mảng' });
-    }
-
-    const data = {
-      version: '1.0',
-      lastUpdated: new Date().toISOString(),
-      loans: loans
-    };
-
-    await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    res.json({ 
-      success: true, 
-      message: 'Đã lưu dữ liệu thành công',
-      count: loans.length 
-    });
-  } catch (error) {
-    console.error('Lỗi khi lưu dữ liệu:', error);
-    res.status(500).json({ error: 'Không thể lưu dữ liệu' });
-  }
-});
-
-// GET: Export dữ liệu (tải file về)
-app.get('/api/export', async (req, res) => {
-  try {
-    const data = await fs.readFile(DATA_FILE, 'utf-8');
-    const jsonData = JSON.parse(data);
-    
-    const exportData = {
-      version: '1.0',
-      exportDate: new Date().toISOString(),
-      loans: jsonData.loans || []
-    };
-
-    const timestamp = new Date().toISOString().split('T')[0];
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="debt-management-backup-${timestamp}.json"`);
-    res.json(exportData);
-  } catch (error) {
-    console.error('Lỗi khi export dữ liệu:', error);
-    res.status(500).json({ error: 'Không thể export dữ liệu' });
-  }
-});
-
-// GET: Lấy tất cả thẻ tín dụng
-app.get('/api/credit-cards', async (req, res) => {
-  try {
-    const data = await fs.readFile(CREDIT_CARDS_FILE, 'utf-8');
-    const jsonData = JSON.parse(data);
-    res.json(jsonData.creditCards || []);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      res.json([]);
-    } else {
-      console.error('Lỗi khi đọc dữ liệu thẻ tín dụng:', error);
-      res.status(500).json({ error: 'Không thể đọc dữ liệu' });
-    }
-  }
-});
-
-// POST: Lưu thẻ tín dụng
-app.post('/api/credit-cards', async (req, res) => {
-  try {
-    const creditCards = req.body.creditCards || req.body;
-    
-    if (!Array.isArray(creditCards)) {
-      return res.status(400).json({ error: 'Dữ liệu phải là một mảng' });
-    }
-
-    const data = {
-      version: '1.0',
-      lastUpdated: new Date().toISOString(),
-      creditCards: creditCards
-    };
-
-    await fs.writeFile(CREDIT_CARDS_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    res.json({ 
-      success: true, 
-      message: 'Đã lưu dữ liệu thành công',
-      count: creditCards.length 
-    });
-  } catch (error) {
-    console.error('Lỗi khi lưu dữ liệu thẻ tín dụng:', error);
-    res.status(500).json({ error: 'Không thể lưu dữ liệu' });
-  }
-});
-
-// GET: Lấy tất cả chi tiêu cố định
-app.get('/api/fixed-expenses', async (req, res) => {
-  try {
-    const data = await fs.readFile(FIXED_EXPENSES_FILE, 'utf-8');
-    const jsonData = JSON.parse(data);
-    res.json(jsonData.fixedExpenses || []);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      res.json([]);
-    } else {
-      console.error('Lỗi khi đọc dữ liệu chi tiêu cố định:', error);
-      res.status(500).json({ error: 'Không thể đọc dữ liệu' });
-    }
-  }
-});
-
-// POST: Lưu chi tiêu cố định
-app.post('/api/fixed-expenses', async (req, res) => {
-  try {
-    const fixedExpenses = req.body.fixedExpenses || req.body;
-    
-    if (!Array.isArray(fixedExpenses)) {
-      return res.status(400).json({ error: 'Dữ liệu phải là một mảng' });
-    }
-
-    const data = {
-      version: '1.0',
-      lastUpdated: new Date().toISOString(),
-      fixedExpenses: fixedExpenses
-    };
-
-    await fs.writeFile(FIXED_EXPENSES_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    res.json({ 
-      success: true, 
-      message: 'Đã lưu dữ liệu thành công',
-      count: fixedExpenses.length 
-    });
-  } catch (error) {
-    console.error('Lỗi khi lưu dữ liệu chi tiêu cố định:', error);
-    res.status(500).json({ error: 'Không thể lưu dữ liệu' });
-  }
-});
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Serve static files from dist folder (for production)
-async function setupStaticFiles() {
-  const DIST_DIR = path.join(__dirname, '../dist');
-  try {
-    await fs.access(DIST_DIR);
-    app.use(express.static(DIST_DIR));
-    
-    // Fallback to index.html for client-side routing
-    app.get('*', (req, res) => {
-      // Don't serve index.html for API routes
-      if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(DIST_DIR, 'index.html'));
-      } else {
-        res.status(404).json({ error: 'API endpoint not found' });
-      }
-    });
-    console.log('✅ Đã cấu hình serve static files từ dist/');
-  } catch (error) {
-    console.log('ℹ️  Thư mục dist chưa có, chỉ chạy API server');
-  }
-}
-
-setupStaticFiles();
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);
-  console.log(`📁 Dữ liệu được lưu tại: ${DATA_DIR}`);
-  console.log(`   - Loans: ${DATA_FILE}`);
-  console.log(`   - Credit Cards: ${CREDIT_CARDS_FILE}`);
-  console.log(`   - Fixed Expenses: ${FIXED_EXPENSES_FILE}`);
-});
-

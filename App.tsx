@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, Sun, Moon, BarChart3, HandCoins, MoreVertical, ChevronUp } from 'lucide-react';
+import { PlusCircle, LayoutDashboard, List, X, Download, Upload, Calendar, CreditCard, Home, TrendingUp, Wallet, LogOut, Route as RouteIcon, Eye, EyeOff, BarChart3, HandCoins, MoreVertical, ChevronUp, Gauge } from 'lucide-react';
 import { Loan, LoanType, LoanStatus, Payment, CreditCard as CreditCardType, FixedExpense, Income, Lending, Investment, InvestmentAccount, InvestmentTransaction, Company, CompanyIncomeRecord } from './types';
 import Dashboard from './components/Dashboard';
 import LoanList from './components/LoanList';
@@ -13,13 +13,13 @@ import InvestmentList from './components/InvestmentList';
 import PaymentRoadmap from './components/PaymentRoadmap';
 import Statistics from './components/Statistics';
 import Login from './components/Login';
-import { loadLoansFromServer, saveLoansToServer, loadCreditCardsFromServer, saveCreditCardsToServer, loadFixedExpensesFromServer, saveFixedExpensesToServer, loadIncomeFromServer, saveIncomeToServer, loadCompaniesFromServer, saveCompaniesToServer, loadCompanyIncomeRecordsFromServer, saveCompanyIncomeRecordsToServer, loadLendingsFromServer, saveLendingsToServer, loadInvestmentsFromServer, loadInvestmentAccountsFromServer, saveInvestmentAccountsToServer, loadInvestmentTransactionsFromServer, saveInvestmentTransactionsToServer, exportDataToFile, importDataFromFile } from './services/fileService';
+import LoadingScreen from './components/LoadingScreen';
+import { apiRequest, exportDataToFile, importDataFromFile } from './services/fileService';
 import { generateUUID } from './utils/uuid';
 import { AmountVisibilityProvider, useAmountVisibility } from './components/AmountVisibility';
 import { useDataManagement } from './hooks/useDataManagement';
 import { useModals } from './hooks/useModals';
 import { formatCurrency } from './utils/constants';
-import { migrateInvestmentsToNewFormat } from './utils/investmentMigration';
 import AddLoanModal from './components/modals/AddLoanModal';
 
 // Re-export for backward compatibility
@@ -27,7 +27,6 @@ export { formatCurrency };
 
 // Initial tabs
 type Tab = 'DASHBOARD' | 'LOANS' | 'LENDINGS' | 'CREDIT_CARDS' | 'EXPENSES' | 'INCOME' | 'INVESTMENTS' | 'CALENDAR' | 'ROADMAP' | 'STATISTICS';
-type Theme = 'light' | 'dark';
 
 // Helper function to get tab from pathname
 const getTabFromPath = (pathname: string): Tab => {
@@ -46,9 +45,10 @@ const getTabFromPath = (pathname: string): Tab => {
 
 interface AppContentProps {
   handleLogout: () => void;
+  onLoadingChange: (isLoading: boolean) => void;
 }
 
-function AppContent({ handleLogout }: AppContentProps) {
+function AppContent({ handleLogout, onLoadingChange }: AppContentProps) {
   const location = useLocation();
   const activeTab = getTabFromPath(location.pathname);
   
@@ -65,6 +65,9 @@ function AppContent({ handleLogout }: AppContentProps) {
     investmentAccounts,
     investmentTransactions,
     isLoading,
+    loadError,
+    flush,
+    replaceData,
     setLoans,
     setCreditCards,
     setFixedExpenses,
@@ -76,6 +79,10 @@ function AppContent({ handleLogout }: AppContentProps) {
     setInvestmentAccounts,
     setInvestmentTransactions
   } = useDataManagement();
+
+  useEffect(() => {
+    onLoadingChange(isLoading);
+  }, [isLoading, onLoadingChange]);
   
   const {
     showAddModal,
@@ -95,51 +102,6 @@ function AppContent({ handleLogout }: AppContentProps) {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { globalHidden, toggleGlobal } = useAmountVisibility();
-  const getInitialTheme = (): Theme => {
-    if (typeof window === 'undefined') return 'light';
-    const stored = localStorage.getItem('theme');
-    if (stored === 'dark' || stored === 'light') return stored;
-    return 'light';
-  };
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
-
-  useEffect(() => {
-    const body = document.body;
-    if (theme === 'dark') {
-      body.classList.add('theme-dark');
-    } else {
-      body.classList.remove('theme-dark');
-    }
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
-  };
-
-  // Handle investment migration from old format
-  useEffect(() => {
-    if (!isLoading && investmentAccounts.length === 0 && investmentTransactions.length === 0) {
-      const migrateInvestments = async () => {
-        try {
-          const loadedInvestments = await loadInvestmentsFromServer();
-          if (loadedInvestments && loadedInvestments.length > 0) {
-            const { accounts, transactions } = migrateInvestmentsToNewFormat(loadedInvestments);
-            setInvestmentAccounts(accounts);
-            setInvestmentTransactions(transactions);
-            
-            // Save migrated data to new structure
-            await saveInvestmentAccountsToServer(accounts);
-            await saveInvestmentTransactionsToServer(transactions);
-          }
-        } catch (error) {
-          console.error('Lỗi khi migrate investments:', error);
-        }
-      };
-      migrateInvestments();
-    }
-  }, [isLoading, investmentAccounts.length, investmentTransactions.length, setInvestmentAccounts, setInvestmentTransactions]);
-
   // Credit Card form fields
   const [cardName, setCardName] = useState('');
   const [cardProvider, setCardProvider] = useState('');
@@ -567,7 +529,8 @@ function AppContent({ handleLogout }: AppContentProps) {
   };
 
   const handleDeleteInvestmentAccount = (id: string) => {
-    setInvestmentAccounts(investmentAccounts.filter(a => a.id !== id));
+    setInvestmentAccounts(previous => previous.filter(a => a.id !== id));
+    setInvestmentTransactions(previous => previous.filter(transaction => transaction.accountId !== id));
   };
 
   // Investment Transaction Handlers
@@ -646,7 +609,7 @@ function AppContent({ handleLogout }: AppContentProps) {
 
   const handleExportData = async () => {
     try {
-      await exportDataToFile();
+      await exportDataToFile({ loans, creditCards, fixedExpenses, incomes, lendings, companies, companyIncomeRecords, bhxhAdjustmentIndices, investmentAccounts, investmentTransactions });
       alert('Đã xuất dữ liệu thành công!');
     } catch (error) {
       alert('Có lỗi xảy ra khi xuất dữ liệu: ' + (error instanceof Error ? error.message : 'Lỗi không xác định'));
@@ -681,7 +644,10 @@ function AppContent({ handleLogout }: AppContentProps) {
           (importedData.incomes?.length || 0) +
           (importedData.lendings?.length || 0) +
           (importedData.companies?.length || 0) +
-          (importedData.companyIncomeRecords?.length || 0);
+          (importedData.companyIncomeRecords?.length || 0) +
+          importedData.bhxhAdjustmentIndices.length +
+          importedData.investmentAccounts.length +
+          importedData.investmentTransactions.length;
         
         if (totalItems === 0) {
           alert('File không chứa dữ liệu nào');
@@ -697,37 +663,20 @@ function AppContent({ handleLogout }: AppContentProps) {
         if (importedData.lendings && importedData.lendings.length > 0) parts.push(`${importedData.lendings.length} khoản cho vay`);
         if (importedData.companies && importedData.companies.length > 0) parts.push(`${importedData.companies.length} công ty`);
         if (importedData.companyIncomeRecords && importedData.companyIncomeRecords.length > 0) parts.push(`${importedData.companyIncomeRecords.length} lịch sử lương/BHXH`);
+        if (importedData.bhxhAdjustmentIndices.length > 0) parts.push(`${importedData.bhxhAdjustmentIndices.length} chỉ số BHXH`);
+        if (importedData.investmentAccounts.length > 0) parts.push(`${importedData.investmentAccounts.length} tài khoản đầu tư`);
+        if (importedData.investmentTransactions.length > 0) parts.push(`${importedData.investmentTransactions.length} giao dịch đầu tư`);
         
-        const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length + lendings.length + companies.length + companyIncomeRecords.length;
+        const currentTotal = loans.length + creditCards.length + fixedExpenses.length + incomes.length + lendings.length + companies.length + companyIncomeRecords.length + bhxhAdjustmentIndices.length + investmentAccounts.length + investmentTransactions.length;
       const confirmMessage = currentTotal > 0
         ? `Bạn đang có ${currentTotal} mục dữ liệu. Import sẽ thay thế toàn bộ dữ liệu hiện tại bằng:\n${parts.join(', ')}\n\nBạn có chắc chắn?`
-        : `Import ${parts.join(', ')} từ file?\n\nLưu ý: ID sẽ được tự động chuyển đổi sang UUID format.`;
+        : `Import ${parts.join(', ')} từ file?`;
 
       if (window.confirm(confirmMessage)) {
-        // Update all data
-        setLoans(importedData.loans);
-        await saveLoansToServer(importedData.loans);
-
-        setCreditCards(importedData.creditCards);
-        await saveCreditCardsToServer(importedData.creditCards);
-
-        setFixedExpenses(importedData.fixedExpenses);
-        await saveFixedExpensesToServer(importedData.fixedExpenses);
-
-        setIncomes(importedData.incomes || []);
-        await saveIncomeToServer(importedData.incomes || []);
-
-        setLendings(importedData.lendings || []);
-        await saveLendingsToServer(importedData.lendings || []);
-
-        setCompanies(importedData.companies || []);
-        await saveCompaniesToServer(importedData.companies || []);
-
-        setCompanyIncomeRecords(importedData.companyIncomeRecords || []);
-        await saveCompanyIncomeRecordsToServer(importedData.companyIncomeRecords || []);
+        await replaceData(importedData);
         
         setShowImportModal(false);
-        alert(`✅ Đã import thành công:\n${parts.join('\n')}\n\nID đã được tự động chuyển đổi sang UUID format.`);
+        alert(`✅ Đã import thành công:\n${parts.join('\n')}`);
       }
     } catch (error) {
       console.error('Error in handleFileSelect:', error);
@@ -737,39 +686,30 @@ function AppContent({ handleLogout }: AppContentProps) {
   };
 
 
+  if (loadError) {
+    return <div role="alert">Không thể tải dữ liệu: {loadError}. Vui lòng tải lại trang.</div>;
+  }
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Đang tải dữ liệu...</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 md:pb-0 font-sans">
+    <div className="app-shell min-h-screen bg-slate-50 text-slate-900 pb-20 md:pb-0 font-sans">
       
       {/* Top Navigation / Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="w-full px-4 h-16 flex items-center justify-between">
+      <header className="app-topbar bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="app-topbar-inner w-full px-4 h-16 flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-2">
             <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-2 rounded-xl shadow-lg flex items-center justify-center">
-              <Wallet size={20} className="font-bold" />
+              <Gauge size={20} className="font-bold" />
             </div>
-            <h1 className="font-bold text-xl text-slate-800 tracking-tight hidden sm:block bg-gradient-to-r from-emerald-600 to-emerald-500 bg-clip-text text-transparent">Quản Lý</h1>
+            <div className="hidden sm:block">
+              <h1 className="font-bold text-xl text-slate-800 tracking-tight">APEX</h1>
+              <p className="app-brand-caption">MONEY · RACE CONTROL</p>
+            </div>
           </Link>
           
           <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 text-slate-700 hover:bg-slate-100"
-              title={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
-            >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-              <span className="hidden sm:inline">{theme === 'dark' ? 'Sáng' : 'Tối'}</span>
-            </button>
             <button
               onClick={toggleGlobal}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 ${
@@ -780,7 +720,14 @@ function AppContent({ handleLogout }: AppContentProps) {
               {globalHidden ? <EyeOff size={16} /> : <Eye size={16} />} <span className="hidden sm:inline"></span>
             </button>
             <button 
-              onClick={handleLogout}
+              onClick={async () => {
+                try {
+                  await flush();
+                  handleLogout();
+                } catch (error) {
+                  alert(`Không thể lưu trước khi đăng xuất: ${error instanceof Error ? error.message : 'Lỗi không xác định'}. Hãy xuất dữ liệu trước khi tải lại.`);
+                }
+              }}
               className="flex items-center gap-2 px-3 py-2 text-slate-700 hover:text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors border border-slate-200"
               title="Đăng xuất"
             >
@@ -838,7 +785,16 @@ function AppContent({ handleLogout }: AppContentProps) {
       </header>
 
       {/* Main Content */}
-      <main className="w-full px-4 py-6 pb-24 md:pb-6 md:ml-[306px] md:w-[calc(100%-306px)]">
+      <main className="app-main-content w-full px-4 py-6 pb-24 md:pb-6 md:ml-[280px] md:w-[calc(100%-280px)]">
+        <div className="race-component-strip" aria-hidden="true">
+          <div className="race-component-strip-label"><span>APEX ENGINEERING</span><strong>RACE CONTROL</strong></div>
+          <div className="race-component-strip-parts">
+            <img src="/race-turbo.svg" alt="" width="50" height="50" />
+            <img src="/race-rotor.svg" alt="" width="50" height="50" />
+            <img src="/race-tachometer.svg" alt="" width="50" height="50" />
+          </div>
+          <div className="race-component-strip-mark">01 / CONTROL</div>
+        </div>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard loans={loans} creditCards={creditCards} fixedExpenses={fixedExpenses} incomes={incomes} investments={investmentTransactions.map(t => {
@@ -925,7 +881,7 @@ function AppContent({ handleLogout }: AppContentProps) {
           onClick={() => setShowMobileMenu(false)}
         />
       )}
-      <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200 md:hidden z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+      <div className="mobile-bottom-nav fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-200 md:hidden z-20 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
         <div className="relative">
           <div className="flex justify-around items-center h-20 px-2 pb-safe">
           <Link 
@@ -1115,7 +1071,7 @@ function AppContent({ handleLogout }: AppContentProps) {
       </div>
 
       {/* Desktop Sidebar / Tabs */}
-      <div className="hidden md:flex fixed top-20 left-4 flex-col gap-2 pr-5 pt-3 w-[306px]">
+      <div className="desktop-sidebar hidden md:flex fixed top-20 left-4 flex-col gap-2 pr-5 pt-3 w-[260px]">
          <Link 
             to="/dashboard"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'DASHBOARD' ? 'bg-white shadow-md text-emerald-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}
@@ -1526,35 +1482,47 @@ function AppContent({ handleLogout }: AppContentProps) {
 }
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    // Check if user is already logged in
-    const auth = localStorage.getItem('debt_app_auth');
-    return auth === 'true';
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [sessionError, setSessionError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/auth/session', { credentials: 'same-origin' }).then(response => {
+      if (response.status === 401) setIsAuthenticated(false);
+      else if (response.ok) setIsAuthenticated(true);
+      else throw new Error(`HTTP ${response.status}`);
+    }).catch(error => setSessionError(error instanceof Error ? error.message : 'Không thể kết nối server'));
+  }, []);
 
   const handleLogin = () => {
+    setIsDataLoading(true);
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (window.confirm('Bạn có chắc chắn muốn đăng xuất?')) {
-      localStorage.removeItem('debt_app_auth');
-      localStorage.removeItem('debt_app_auth_time');
-      setIsAuthenticated(false);
+      try {
+        await apiRequest('/auth/logout', { method: 'POST' });
+        setIsAuthenticated(false);
+      } catch (error) {
+        alert(`Không thể đăng xuất: ${error instanceof Error ? error.message : 'Lỗi không xác định'}`);
+      }
     }
   };
 
-  // Show login screen if not authenticated
-  if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} />;
-  }
-
+  if (sessionError) return <div role="alert">Không thể kiểm tra phiên đăng nhập: {sessionError}. Vui lòng tải lại trang.</div>;
   return (
-    <AmountVisibilityProvider>
-      <BrowserRouter>
-        <AppContent handleLogout={handleLogout} />
-      </BrowserRouter>
-    </AmountVisibilityProvider>
+    <>
+      {(isAuthenticated === null || (isAuthenticated && isDataLoading)) && <LoadingScreen />}
+      {isAuthenticated === false && <Login onLogin={handleLogin} />}
+      {isAuthenticated && (
+        <AmountVisibilityProvider>
+          <BrowserRouter>
+            <AppContent handleLogout={handleLogout} onLoadingChange={setIsDataLoading} />
+          </BrowserRouter>
+        </AmountVisibilityProvider>
+      )}
+    </>
   );
 }
 

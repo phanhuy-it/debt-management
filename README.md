@@ -1,79 +1,59 @@
 # Debt Management App
 
-Ứng dụng quản lý thông minh - Quản lý các khoản vay ngân hàng, thẻ tín dụng và chi tiêu cố định.
+Ứng dụng quản lý các khoản vay, thẻ tín dụng, chi tiêu, thu nhập, BHXH và đầu tư.
 
-## Tính năng
+## Chạy local
 
-- 📊 **Dashboard tổng quan**: Xem tổng hợp số tiền vay, đã trả và còn lại
-- 💳 **Quản lý khoản vay ngân hàng**: Theo dõi các khoản vay ngân hàng với số kỳ, tháng tất toán
-- 👥 **Quản lý vay người thân**: Theo dõi các khoản vay từ người thân, bạn bè
-- 💰 **Quản lý thẻ tín dụng**: Theo dõi dư nợ và hạn mức thẻ tín dụng
-- 🏠 **Chi tiêu cố định**: Quản lý các khoản chi tiêu định kỳ hàng tháng
-- 📅 **Lịch thanh toán**: Xem lịch thanh toán chi tiết theo ngày
-- 📈 **Thống kê**: Xem biểu đồ và thống kê chi tiết
-
-## Công nghệ sử dụng
-
-- React 19
-- TypeScript
-- Vite
-- Tailwind CSS
-- Recharts (biểu đồ)
-- Express (backend server)
-
-## Cài đặt và chạy
-
-### Prerequisites
-- Node.js (v18 trở lên)
-
-### Cài đặt
+Yêu cầu Node.js 18 trở lên và database PostgreSQL trên Neon.
 
 ```bash
-# Cài đặt dependencies
 npm install
+cp .env.example .env
 ```
 
-### Chạy development
+Trong `.env`, đặt `DATABASE_URL` thành chuỗi kết nối Neon có TLS,
+`APP_PASSWORD` thành mật khẩu dài ít nhất 14 ký tự (khuyến nghị mật khẩu
+ngẫu nhiên dài ít nhất 20 ký tự) và
+`FRONTEND_ORIGIN=http://localhost:3000`. Không commit file `.env`.
 
 ```bash
-# Chạy cả frontend và backend server
 npm run dev:all
-
-# Hoặc chạy riêng
-npm run dev          # Frontend only
-npm run dev:server   # Backend server only
 ```
 
-### Build cho production
+Truy cập http://localhost:3000 và đăng nhập bằng `APP_PASSWORD`. Vite chuyển
+tiếp `/api` đến backend tại cổng 3001. Backend đọc và ghi trực tiếp các bảng
+`loans`, `credit_cards`, `fixed_expenses`, `income`, `lendings`, `companies`,
+`company_income_records`, `bhxh_adjustment_indices`, `investment_accounts` và
+`investment_transactions` trong schema `public`. Các bảng nghiệp vụ phải được
+thiết lập trước theo cấu trúc database hiện tại; backend chỉ tự tạo các bảng
+phụ `debt_app_sessions` và `debt_app_legacy_investments`.
+
+Khi lưu, backend kiểm tra phiên bản dựa trên nội dung database và ghi trong một
+transaction. Nếu dữ liệu đã thay đổi ở phiên khác, kể cả chỉnh trực tiếp trong
+database, ứng dụng báo lỗi thay vì ghi đè; hãy xuất dữ liệu trên trang trước
+khi tải lại. Lịch sử thu nhập hiện dùng `income.payments`; nếu bảng
+`income_payments` có dữ liệu, ứng dụng báo lỗi để tránh bỏ sót dữ liệu.
+
+Giao dịch trong bảng cũ `investments` phải được chuyển sang
+`investment_accounts` và `investment_transactions` trước khi sử dụng:
 
 ```bash
-npm run build
+node server/migrateLegacyInvestments.js
 ```
 
-## Deploy lên Vercel
+Lệnh giữ nguyên bảng cũ, ghi dấu những giao dịch đã chuyển và có thể chạy lại;
+nó dừng nếu giao dịch trùng ID nhưng khác nội dung hoặc có nhiều tài khoản
+cùng tên. Bảng `investments` sau đó là bản lưu cũ, không tự đồng bộ với các
+chỉnh sửa mới. Bảng JSON `debt_app_data` từ backend trước đây không được tự
+động nhập hoặc xóa; hãy sao lưu và đối chiếu dữ liệu trước khi nhập thủ công.
+Backend đọc `.env` khi khởi động, nên cần khởi động lại sau khi đổi mật khẩu.
+Môi trường production yêu cầu mật khẩu ít nhất 20 ký tự.
 
-1. Push code lên GitHub
-2. Kết nối repository với Vercel
-3. Vercel sẽ tự động detect và deploy
+Xem [DEPLOY.md](./DEPLOY.md) để triển khai frontend và backend tách biệt.
+Các tài liệu Supabase còn lại chỉ mang tính lịch sử.
 
-**Lưu ý**: Cần cấu hình build command và output directory:
-- Build Command: `npm run build`
-- Output Directory: `dist`
+## Kiểm thử database
 
-## Cấu trúc project
-
-```
-├── components/          # React components
-│   ├── Calendar.tsx    # Component lịch thanh toán
-│   ├── Dashboard.tsx   # Trang tổng quan
-│   ├── LoanList.tsx    # Danh sách khoản vay
-│   └── ...
-├── services/           # Service layer
-├── server/             # Backend server
-├── types.ts           # TypeScript types
-└── App.tsx            # Main app component
-```
-
-## License
-
-MIT
+Với `TEST_DATABASE_URL` trỏ đến kết nối PostgreSQL trực tiếp (không qua
+transaction pooler), chạy `node --test server/dataStore.test.js`. Kiểm thử tạo
+các bảng tạm riêng cho phiên và không ghi vào các bảng nghiệp vụ.

@@ -1,18 +1,17 @@
 import React, { useState } from 'react';
-import { Lock, AlertCircle } from 'lucide-react';
+import { Lock, AlertCircle, Gauge } from 'lucide-react';
+import { apiRequest } from '../services/fileService';
 
 interface LoginProps {
   onLogin: () => void;
 }
-
-const PASSWORD = 'abcd@@1234ABCD';
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -23,32 +22,28 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     setIsLoading(true);
 
-    // Simulate small delay for better UX
-    setTimeout(() => {
-      if (password === PASSWORD) {
-        // Save login state
-        localStorage.setItem('debt_app_auth', 'true');
-        localStorage.setItem('debt_app_auth_time', new Date().toISOString());
-        onLogin();
-      } else {
-        setError('Mật khẩu không đúng');
-        setPassword('');
-        setIsLoading(false);
-      }
-    }, 300);
+    try {
+      await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify({ password }) });
+      onLogin();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Không thể đăng nhập');
+      setPassword('');
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-blue-50 to-purple-50 flex items-center justify-center p-4">
+    <div className="login-shell min-h-screen bg-gradient-to-br from-emerald-50 via-blue-50 to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden animate-scale-up">
+        <div className="login-card bg-white rounded-2xl shadow-2xl overflow-hidden animate-scale-up">
           {/* Header */}
-          <div className="bg-gradient-to-r from-emerald-600 to-blue-600 p-8 text-center">
+          <div className="login-banner bg-gradient-to-r from-emerald-600 to-blue-600 p-8 text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-full mb-4">
-              <Lock className="text-white" size={32} />
+              <Gauge className="text-white" size={32} />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">Quản lý</h1>
-            <p className="text-emerald-100 text-sm">Vui lòng đăng nhập để tiếp tục</p>
+            <p className="login-brand-caption">APEX · MONEY RACE CONTROL</p>
+            <h1 className="text-2xl font-bold text-white mb-2">Vào đường đua</h1>
+            <p className="text-emerald-100 text-sm">Đăng nhập để tiếp tục hành trình tài chính</p>
           </div>
 
           {/* Form */}
@@ -100,7 +95,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           {/* Footer */}
           <div className="px-8 pb-6 text-center">
             <p className="text-xs text-slate-500">
-              Ứng dụng quản lý cá nhân
+              PIT LANE ACCESS · PERSONAL FINANCE
             </p>
           </div>
         </div>
@@ -110,4 +105,3 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 };
 
 export default Login;
-

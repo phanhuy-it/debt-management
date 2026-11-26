@@ -1,3 +1,5 @@
+# Lưu ý: Tài liệu lịch sử. Ứng dụng hiện dùng Neon; xem README.md và DEPLOY.md.
+
 # Cách lấy Supabase API Keys cho Frontend
 
 ## Bước 1: Vào Supabase Dashboard
@@ -68,4 +70,3 @@ pass: 9qVjnb59MdwXo6B9
 - Direct PostgreSQL connections
 
 **KHÔNG CẦN** thông tin này cho frontend React app. Frontend chỉ cần Project URL và Anon Key như hướng dẫn trên.
-

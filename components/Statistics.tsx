@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { Loan, LoanType, LoanStatus, CreditCard, FixedExpense, Income, Investment, InvestmentType, Payment } from '../types';
 import { Calendar, TrendingUp, TrendingDown, DollarSign, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
@@ -50,7 +50,8 @@ const formatChartAmount = (value: number): string => {
 };
 
 const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpenses, incomes, investments }) => {
-  const { formatAmount } = useAmountVisibility();
+  const { formatAmount, isHidden } = useAmountVisibility();
+  const chartHidden = isHidden('stats-total-income') || isHidden('stats-total-expenses') || isHidden('stats-balance');
   const [selectedMonth, setSelectedMonth] = useState<Date>(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -371,20 +372,57 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
       )}
 
       {/* Biểu đồ xu hướng 6 tháng */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <h3 className="text-lg font-semibold text-slate-800 mb-4">Xu hướng 6 tháng gần nhất</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={last6MonthsStats}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis tickFormatter={(value) => formatChartAmount(value)} />
-            <Tooltip formatter={(value: number) => formatChartAmount(value)} />
-            <Legend />
-            <Line type="monotone" dataKey="income" stroke="#10B981" strokeWidth={2} name="Thu nhập" />
-            <Line type="monotone" dataKey="expenses" stroke="#EF4444" strokeWidth={2} name="Chi tiêu" />
-            <Line type="monotone" dataKey="balance" stroke="#3B82F6" strokeWidth={2} name="Số dư" />
-          </LineChart>
-        </ResponsiveContainer>
+      <div className="cashflow-race-track bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <div className="cashflow-track-header">
+          <div>
+            <p className="cashflow-track-kicker">CASH FLOW CIRCUIT / 06 LAPS</p>
+            <h3>Đường đua dòng tiền</h3>
+            <p className="cashflow-track-description">6 tháng đến {monthLabel}. Thu–chi theo giao dịch, riêng khoản vay theo kỳ thanh toán dự kiến.</p>
+          </div>
+          <span className="cashflow-track-flag" aria-hidden="true" />
+        </div>
+        <div className="cashflow-track-legend" aria-hidden="true">
+          <span><i className="track-key-income" /> Thu nhập</span>
+          <span><i className="track-key-expenses" /> Chi tiêu</span>
+          <span><i className="track-key-balance" /> Số dư</span>
+        </div>
+        {chartHidden ? (
+          <div className="cashflow-track-hidden">Hiển thị thu nhập, chi tiêu và số dư để xem biểu đồ.</div>
+        ) : (
+          <>
+            <div className="cashflow-track-chart" aria-hidden="true">
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={last6MonthsStats} margin={{ top: 16, right: 12, left: 0, bottom: 4 }}>
+                  <CartesianGrid stroke="#373a3f" strokeDasharray="4 8" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fill: '#b2b7bc', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#4d5155' }} />
+                  <YAxis width={48} tick={{ fill: '#b2b7bc', fontSize: 11 }} tickFormatter={formatChartAmount} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(value: number) => formatAmount(value, 'stats-total-income')} labelStyle={{ color: '#f0efec' }} />
+                  <Line type="monotone" dataKey="income" stroke="#79d8ad" strokeWidth={3} name="Thu nhập" dot={{ r: 4, strokeWidth: 2, fill: '#191b1f' }} activeDot={{ r: 6 }} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="expenses" stroke="#ff805f" strokeWidth={3} name="Chi tiêu" dot={{ r: 4, strokeWidth: 2, fill: '#191b1f' }} activeDot={{ r: 6 }} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="balance" stroke="#80c9f3" strokeWidth={2} strokeDasharray="6 4" name="Số dư" dot={{ r: 3, strokeWidth: 2, fill: '#191b1f' }} activeDot={{ r: 6 }} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <details className="cashflow-track-details">
+              <summary>Xem dữ liệu từng tháng</summary>
+              <div className="cashflow-track-table-wrap">
+                <table>
+                  <thead><tr><th>Tháng</th><th>Thu nhập</th><th>Chi tiêu</th><th>Số dư</th></tr></thead>
+                  <tbody>
+                    {last6MonthsStats.map(month => (
+                      <tr key={month.month}>
+                        <td>{month.month}</td>
+                        <td>{formatAmount(month.income, 'stats-total-income')}</td>
+                        <td>{formatAmount(month.expenses, 'stats-total-expenses')}</td>
+                        <td>{formatAmount(month.balance, 'stats-balance')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </>
+        )}
       </div>
 
       {/* Chi tiết theo loại */}
@@ -540,4 +578,3 @@ const Statistics: React.FC<StatisticsProps> = ({ loans, creditCards, fixedExpens
 };
 
 export default Statistics;
-

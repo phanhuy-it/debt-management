@@ -1,3 +1,5 @@
+# Lưu ý: Tài liệu lịch sử. Ứng dụng hiện dùng Neon; xem README.md và DEPLOY.md.
+
 # Hướng dẫn Setup Supabase
 
 ## Bước 1: Tạo Supabase Project
@@ -98,4 +100,3 @@ Hoặc nếu muốn public access (cho app cá nhân), giữ nguyên như hiện
 - Database trống nhưng localStorage có dữ liệu
 
 Sau khi migrate, dữ liệu sẽ được lưu trong Supabase và có thể truy cập từ bất kỳ đâu!
-

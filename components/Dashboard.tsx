@@ -4,7 +4,7 @@ import { Loan, LoanType, CreditCard, FixedExpense, Income, Investment, Investmen
 import { generateUUID } from '../utils/uuid';
 import { isBorrowPayment } from '../utils/constants';
 import { isLoanPaymentDueInMonth } from '../utils/dateUtils';
-import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone, CheckCircle2 } from 'lucide-react';
+import { Wallet, CreditCard as CreditCardIcon, Home, AlertCircle, Calendar, TrendingUp, TrendingDown, X, Banknote, Smartphone, CheckCircle2, Gauge } from 'lucide-react';
 import { Amount, useAmountVisibility } from './AmountVisibility';
 import { getVietnameseLunarDate } from '../utils/lunarCalendar';
 
@@ -44,7 +44,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const { formatAmount } = useAmountVisibility();
+  const { formatAmount, isHidden } = useAmountVisibility();
   
   // Format số tiền cho chart (chia cho 1,000,000)
   const formatChartAmount = (value: number): string => {
@@ -379,6 +379,8 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
 
   // Tính dư/thiếu
   const monthlyBalance = totalMonthlyIncome - totalMonthlyExpenses;
+  const cashFlowHidden = isHidden('dashboard-total-income') || isHidden('dashboard-total-expenses') || isHidden('dashboard-balance');
+  const expenseRatio = totalMonthlyIncome > 0 ? totalMonthlyExpenses / totalMonthlyIncome : null;
   
   // Đếm số nguồn thu nhập sẽ thu trong tháng hiện tại
   const currentMonthIncomeCount = useMemo(() => {
@@ -951,31 +953,40 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+    <div className="app-dashboard space-y-6 animate-fade-in">
+      <div className="dashboard-heading">
         <div>
-          <p className="text-sm text-slate-500">Hôm nay</p>
-          <p className="text-lg font-semibold text-slate-900">{todayLabel}</p>
-          {todayLunarLabel && (
-            <p className="text-sm text-slate-600 mt-1">{todayLunarLabel}</p>
-          )}
+          <p className="dashboard-eyebrow"><span className="dashboard-status-light" /> RACE CONTROL <span className="dashboard-eyebrow-divider">/</span> MONEY TELEMETRY</p>
+          <h2 className="dashboard-title">Bảng điều khiển</h2>
         </div>
-        <div className="flex items-center gap-2 text-emerald-600">
-          <Calendar size={18} />
-          <span className="text-sm font-medium">Tổng quan</span>
+        <div className="dashboard-datebar bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-slate-500">Hôm nay</p>
+            <p className="text-lg font-semibold text-slate-900">{todayLabel}</p>
+            {todayLunarLabel && (
+              <p className="text-sm text-slate-600 mt-1">{todayLunarLabel}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-emerald-600">
+            <Calendar size={18} />
+            <span className="text-sm font-medium">Vòng đua hiện tại</span>
+          </div>
         </div>
       </div>
 
       {/* So sánh Thu - Chi */}
-      <div className="bg-gradient-to-br from-emerald-50 to-blue-50 p-6 rounded-xl shadow-sm border border-emerald-200">
+      <div className="finance-overview bg-gradient-to-br from-emerald-50 to-blue-50 p-6 rounded-xl shadow-sm border border-emerald-200">
         <h4 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-          <TrendingUp className="text-emerald-600" size={20} />
-          Tình hình tài chính hàng tháng
+          <Gauge className="text-emerald-600" size={20} />
+          <span>
+            <span className="finance-overview-kicker">MONTHLY TELEMETRY · {new Date().toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}</span>
+            <span className="finance-overview-title">Dòng tiền tháng này</span>
+          </span>
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div 
             onClick={() => setShowIncomeModal(true)}
-            className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-emerald-100 cursor-pointer hover:bg-white transition-colors"
+            className="race-metric race-metric-turbo bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-emerald-100 cursor-pointer hover:bg-white transition-colors"
           >
             <p className="text-sm text-slate-600 mb-1">Tổng thu nhập</p>
             <h3 className="text-2xl font-bold text-emerald-600">
@@ -987,7 +998,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
           </div>
           <div 
             onClick={() => setShowExpenseModal(true)}
-            className="bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100 cursor-pointer hover:bg-white transition-colors"
+            className="race-metric race-metric-rotor bg-white/80 backdrop-blur-sm p-4 rounded-lg border border-red-100 cursor-pointer hover:bg-white transition-colors"
           >
             <p className="text-sm text-slate-600 mb-1">Tổng chi tiêu</p>
             <h3 className="text-2xl font-bold text-red-600">
@@ -997,7 +1008,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
               {currentMonthExpenseCount} khoản chi
             </p>
           </div>
-          <div className={`bg-white/80 backdrop-blur-sm p-4 rounded-lg border ${
+          <div className={`race-metric race-metric-tachometer bg-white/80 backdrop-blur-sm p-4 rounded-lg border ${
             monthlyBalance >= 0 ? 'border-emerald-200' : 'border-red-200'
           }`}>
             <p className="text-sm text-slate-600 mb-1">Số dư</p>
@@ -1021,6 +1032,35 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
             </p>
           </div>
         </div>
+        <div className="cashflow-tachometer">
+          <div className="cashflow-tachometer-dial" aria-hidden="true">
+            <svg viewBox="0 0 160 100">
+              <path className="cashflow-dial-track" d="M 12 88 A 68 68 0 0 1 148 88" pathLength="100" />
+              {!cashFlowHidden && expenseRatio !== null && (
+                <path
+                  className={monthlyBalance < 0 ? 'cashflow-dial-fill is-over' : 'cashflow-dial-fill'}
+                  d="M 12 88 A 68 68 0 0 1 148 88"
+                  pathLength="100"
+                  strokeDasharray={`${Math.max(0, Math.min(expenseRatio * 100, 100))} 100`}
+                />
+              )}
+            </svg>
+            <span className="cashflow-dial-value">
+              {cashFlowHidden ? '•••' : expenseRatio === null ? '—' : `${Math.round(expenseRatio * 100)}%`}
+            </span>
+          </div>
+          <div className="cashflow-tachometer-copy">
+            <span className="cashflow-tachometer-kicker">CASH FLOW / TELEMETRY</span>
+            <h4>Nhịp dòng tiền</h4>
+            <p>
+              {cashFlowHidden
+                ? 'Hiển thị thu nhập, chi tiêu và số dư để xem đồng hồ.'
+                : expenseRatio === null
+                  ? 'Chưa có thu nhập để tính tỷ lệ chi tiêu.'
+                  : `Chi tiêu bằng ${Math.round(expenseRatio * 100)}% thu nhập tháng này. Vòng cung tối đa 100%.`}
+            </p>
+          </div>
+        </div>
         {monthlyBalance < 0 && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4">
             <p className="text-sm text-red-800">
@@ -1040,9 +1080,19 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
       </div>
 
       {/* Các khoản thanh toán sắp tới */}
-      {unpaidExpenses.length > 0 && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-4">
+      {unpaidExpenses.length > 0 ? (
+        <div className="pit-stop-panel bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <div className="pit-stop-banner">
+            <div>
+              <span className="pit-stop-kicker">PIT STOP / PAYMENT CONTROL</span>
+              <strong>Điểm dừng thanh toán</strong>
+            </div>
+            <span className={totalOverdue > 0 ? 'pit-stop-status is-overdue' : 'pit-stop-status'}>
+              <i aria-hidden="true" />
+              {totalOverdue > 0 ? 'CÓ KHOẢN QUÁ HẠN' : totalDueToday > 0 ? 'ĐẾN HẠN HÔM NAY' : 'CẦN THEO DÕI'}
+            </span>
+          </div>
+          <div className="pit-stop-summary flex items-center justify-between mb-4">
             <h4 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
               <AlertCircle className="text-orange-500" size={20} />
               Các khoản thanh toán sắp tới
@@ -1133,7 +1183,7 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
                 <div
                   key={expense.id}
                   onClick={() => handleExpenseClick(expense)}
-                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                  className={`pit-stop-row flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
                     isOverdue 
                       ? 'bg-red-50 border-red-200 hover:bg-red-100' 
                       : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
@@ -1197,6 +1247,17 @@ const Dashboard: React.FC<DashboardProps> = ({ loans, creditCards, fixedExpenses
               );
             })}
           </div>
+        </div>
+      ) : (
+        <div className="pit-stop-panel pit-stop-empty bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <div className="pit-stop-banner">
+            <div>
+              <span className="pit-stop-kicker">PIT STOP / PAYMENT CONTROL</span>
+              <strong>Điểm dừng thanh toán</strong>
+            </div>
+            <span className="pit-stop-status"><i aria-hidden="true" /> KHÔNG CÓ KHOẢN CHỜ</span>
+          </div>
+          <p>Không có khoản thanh toán nào cần theo dõi lúc này.</p>
         </div>
       )}
 

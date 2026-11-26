@@ -12,14 +12,14 @@
     "start": "node server/index.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.87.1",
-    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^4.18.2",
     "lucide-react": "^0.561.0",
     "lunar-date-vn": "^1.0.6",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.10.1",
+    "pg": "^8.13.3",
     "recharts": "^3.5.1"
   },
   "devDependencies": {

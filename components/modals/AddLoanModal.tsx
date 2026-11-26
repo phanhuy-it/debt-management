@@ -81,23 +81,30 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
 
   return (
     <div 
-      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
+      className="loan-modal-overlay fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 modal-top-0 animate-fade-in"
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up max-h-[90vh] flex flex-col"
+        className="loan-modal bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-scale-up max-h-[90vh] flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-loan-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h2 className="font-bold text-lg text-slate-800">Thêm khoản vay mới</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+        <div className="loan-modal-header p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <div>
+            <p className="loan-modal-kicker">PIT LANE / KHOẢN VAY</p>
+            <h2 id="add-loan-title" className="font-bold text-lg text-slate-800">Thêm khoản vay mới</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Đóng" className="loan-modal-close text-slate-400 hover:text-slate-600">
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
-          <div className="bg-slate-100 p-1 rounded-lg flex gap-1 mb-4">
+        <form onSubmit={handleSubmit} className="loan-modal-form p-6 space-y-4 overflow-y-auto">
+          <div className="loan-modal-tabs bg-slate-100 p-1 rounded-lg flex gap-1 mb-4" role="group" aria-label="Loại khoản vay">
             <button
               type="button"
+              aria-pressed={newType === LoanType.BANK}
               onClick={() => setNewType(LoanType.BANK)}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.BANK ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
@@ -105,6 +112,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
             </button>
             <button
               type="button"
+              aria-pressed={newType === LoanType.APP}
               onClick={() => setNewType(LoanType.APP)}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.APP ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
@@ -112,6 +120,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
             </button>
             <button
               type="button"
+              aria-pressed={newType === LoanType.PERSONAL}
               onClick={() => setNewType(LoanType.PERSONAL)}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${newType === LoanType.PERSONAL ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
             >
@@ -177,7 +186,7 @@ const AddLoanModal: React.FC<AddLoanModalProps> = ({ isOpen, onClose, onSubmit }
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="loan-interest-option flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <input 
                   type="checkbox" 
                   id="interestOnly"
