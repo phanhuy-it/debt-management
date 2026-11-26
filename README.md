@@ -26,7 +26,9 @@ tiếp `/api` đến backend tại cổng 3001. Backend đọc và ghi trực ti
 `company_income_records`, `bhxh_adjustment_indices`, `investment_accounts` và
 `investment_transactions` trong schema `public`. Các bảng nghiệp vụ phải được
 thiết lập trước theo cấu trúc database hiện tại; backend chỉ tự tạo các bảng
-phụ `debt_app_sessions` và `debt_app_legacy_investments`.
+phụ `debt_app_sessions`, `debt_app_legacy_investments` và
+`debt_app_login_attempts`. Số lần thử đăng nhập được giới hạn trên database
+để có hiệu lực trên nhiều instance serverless.
 
 Khi lưu, backend kiểm tra phiên bản dựa trên nội dung database và ghi trong một
 transaction. Nếu dữ liệu đã thay đổi ở phiên khác, kể cả chỉnh trực tiếp trong
@@ -49,7 +51,7 @@ chỉnh sửa mới. Bảng JSON `debt_app_data` từ backend trước đây kh�
 Backend đọc `.env` khi khởi động, nên cần khởi động lại sau khi đổi mật khẩu.
 Môi trường production yêu cầu mật khẩu ít nhất 20 ký tự.
 
-Xem [DEPLOY.md](./DEPLOY.md) để triển khai frontend và backend tách biệt.
+Xem [DEPLOY.md](./DEPLOY.md) để triển khai frontend và API cùng trên Vercel.
 Các tài liệu Supabase còn lại chỉ mang tính lịch sử.
 
 ## Kiểm thử database

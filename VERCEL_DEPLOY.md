@@ -1,5 +1,5 @@
 # Vercel
 
-Triển khai frontend Vercel cùng backend Express riêng theo
-[hướng dẫn triển khai](./DEPLOY.md). Cập nhật URL backend thật trong
-`vercel.json` trước khi deploy. Không đưa credentials Neon vào frontend.
+Triển khai frontend và API Serverless cùng dự án theo
+[hướng dẫn triển khai](./DEPLOY.md). Cấu hình database và mật khẩu ở Vercel
+Environment Variables, không đưa credentials vào frontend.

@@ -1,39 +1,35 @@
-# Triển khai
+# Triển khai trên Vercel với Neon
 
-Frontend Vite và backend Express được triển khai riêng. Neon chỉ được truy cập
-từ backend; không đặt `DATABASE_URL` hoặc `APP_PASSWORD` vào biến `VITE_*`.
+Frontend Vite và API Express chạy trong cùng dự án Vercel. API được triển khai
+thành Vercel Function, kết nối Neon từ server; không cần Railway hay Render.
+Không đưa `DATABASE_URL` hoặc `APP_PASSWORD` vào biến `VITE_*` hay frontend.
 
-## Backend (Railway / Render)
-
-1. Tạo Node web service từ repository, cài dependencies bằng `npm install`,
-   chạy `npm start`.
-2. Cấu hình biến môi trường riêng tư:
-   - `DATABASE_URL`: chuỗi kết nối Neon với TLS và xác thực chứng chỉ.
+1. Import repository vào Vercel, chọn framework Vite, build command
+   `npm run build` và output directory `dist`.
+2. Trong **Project Settings → Environment Variables**, cấu hình cho đúng môi
+   trường (Production và/hoặc Preview):
+   - `DATABASE_URL`: chuỗi kết nối Neon có TLS và xác thực chứng chỉ; nên dùng
+     endpoint pooled của Neon cho serverless.
    - `APP_PASSWORD`: mật khẩu ngẫu nhiên tối thiểu 20 ký tự.
-   - `FRONTEND_ORIGIN`: origin HTTPS chính xác của frontend, ví dụ
-     `https://app.example.com` (không có đường dẫn hoặc dấu `/` cuối).
-   - `NODE_ENV=production`.
-3. Bật HTTPS, lưu URL của backend và đảm bảo backend có thể kết nối Neon.
-   Các bảng nghiệp vụ trong `public` phải có sẵn; backend chỉ tự tạo bảng
-   phiên đăng nhập và bảng đánh dấu giao dịch đầu tư cũ đã chuyển. Xem
-   [README.md](./README.md) để kiểm tra và chuyển dữ liệu cũ trước khi chạy.
-   Giới hạn quyền truy cập database và không dựa vào RLS nếu các bảng đang
-   tắt RLS.
+   - `FRONTEND_ORIGIN`: origin HTTPS chính xác của ứng dụng, ví dụ
+     `https://debt-management-ten.vercel.app`, không có đường dẫn hoặc `/`
+     cuối.
+3. Triển khai lại sau khi thay biến môi trường. `/api/*` được xử lý bởi
+   Vercel Function trong cùng origin; các URL trang được chuyển tới SPA.
+4. Kiểm tra `GET /api/auth/session` khi chưa đăng nhập trả về HTTP 401 JSON,
+   sau đó đăng nhập và kiểm tra tải dữ liệu. Nếu lỗi, xem Function Logs trong
+   Vercel. Các bảng nghiệp vụ trong `public` phải có sẵn; tài khoản database
+   cần quyền đọc/ghi các bảng và tạo bảng phụ cho phiên, migration và giới hạn
+   đăng nhập. Xem [README.md](./README.md) để xử lý dữ liệu cũ.
 
-## Frontend (Vercel)
+Trên Vercel, kể cả Preview, ứng dụng luôn yêu cầu origin HTTPS, mật khẩu đủ
+20 ký tự và dùng cookie Secure. Preview deployment có URL khác sẽ bị kiểm tra origin từ chối nếu không
+khớp `FRONTEND_ORIGIN`; dùng domain ổn định và cấu hình riêng cho từng môi
+trường. Dùng database staging riêng để tránh ghi nhầm dữ liệu production.
 
-1. Trong `vercel.json`, thay `https://your-backend-url.com` bằng URL HTTPS
-   thực tế của backend. Rewrite `/api` phải đến backend trước rewrite SPA.
-2. Build bằng `npm run build`, output `dist`, rồi deploy.
-3. Truy cập frontend qua đúng `FRONTEND_ORIGIN` và đăng nhập. Không gọi
-   backend trực tiếp từ frontend: proxy cùng origin cần thiết cho cookie
-   HttpOnly, SameSite và kiểm tra origin.
-
-Vercel preview/deployment domain khác sẽ bị từ chối trừ khi được cấu hình
-thành `FRONTEND_ORIGIN` riêng cho backend tương ứng. Thay đổi mật khẩu Neon
-nếu chuỗi kết nối từng bị chia sẻ; cập nhật biến trên backend và khởi động lại.
-Đặt rate limiting ở reverse proxy cho triển khai công khai; giới hạn đăng nhập
-trong tiến trình chỉ bổ sung bảo vệ và không chia sẻ giữa các instance.
-
-Sao lưu bằng chức năng xuất JSON trong ứng dụng và Neon backups; dữ liệu JSON
-từ backend cũ hoặc file backup không được tự động nhập hay xóa.
+Giới hạn đăng nhập dùng database và áp dụng giữa các instance; nên bổ sung
+Vercel Firewall/rate limiting cho dịch vụ công khai. Giới hạn kích thước request
+của Vercel có thể thấp hơn giới hạn Express 10 MB, nên file backup quá lớn
+có thể không nhập được qua Function. Giới hạn quyền truy cập database và không
+dựa vào RLS nếu các bảng đang tắt RLS. Sao lưu qua chức năng xuất JSON và Neon
+backups; dữ liệu JSON từ backend cũ không được tự động nhập hay xóa.
